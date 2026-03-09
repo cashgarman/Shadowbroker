@@ -824,35 +824,36 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         return { type: 'FeatureCollection', features };
     }, [selectedEntity, data, dynamicRoute]);
 
-    // Trail history GeoJSON: shows where an aircraft has been (from backend trail data)
+    // Trail history GeoJSON: render trails for ALL flights without a known route
     const trailGeoJSON = useMemo(() => {
-        if (!selectedEntity || !data) return null;
-
-        let entity = null;
-        if (selectedEntity.type === 'flight') entity = data?.commercial_flights?.[selectedEntity.id as number];
-        else if (selectedEntity.type === 'private_flight') entity = data?.private_flights?.[selectedEntity.id as number];
-        else if (selectedEntity.type === 'military_flight') entity = data?.military_flights?.[selectedEntity.id as number];
-        else if (selectedEntity.type === 'private_jet') entity = data?.private_jets?.[selectedEntity.id as number];
-        else if (selectedEntity.type === 'tracked_flight') entity = data?.tracked_flights?.[selectedEntity.id as number];
-
-        if (!entity || !entity.trail || entity.trail.length < 2) return null;
-
-        // trail points are [lat, lng, alt, timestamp] — convert to [lng, lat] for GeoJSON
-        const coords = entity.trail.map((p: number[]) => [p[1], p[0]]);
-        // Append current position as the final point
-        if (entity.lat != null && entity.lng != null) {
-            coords.push([entity.lng, entity.lat]);
+        if (!data) return null;
+        const features: any[] = [];
+        const allLists = [
+            data.commercial_flights,
+            data.private_flights,
+            data.private_jets,
+            data.military_flights,
+            data.tracked_flights,
+        ];
+        for (const list of allLists) {
+            if (!list) continue;
+            for (const f of list) {
+                if (!f.trail || f.trail.length < 2) continue;
+                // Only show trails for flights without a known route
+                if (f.origin_name && f.origin_name !== 'UNKNOWN') continue;
+                if (!inView(f.lat, f.lng)) continue;
+                const coords = f.trail.map((p: number[]) => [p[1], p[0]]);
+                if (f.lat != null && f.lng != null) coords.push([f.lng, f.lat]);
+                features.push({
+                    type: 'Feature',
+                    properties: { type: 'trail' },
+                    geometry: { type: 'LineString', coordinates: coords }
+                });
+            }
         }
-
-        return {
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                properties: { type: 'trail' },
-                geometry: { type: 'LineString', coordinates: coords }
-            }]
-        };
-    }, [selectedEntity, data]);
+        if (features.length === 0) return null;
+        return { type: 'FeatureCollection', features };
+    }, [data, inView]);
 
     const spreadAlerts = useMemo(() => {
         if (!data?.news) return [];
