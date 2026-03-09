@@ -1,8 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #ededed;
+  --bg-primary: #000000;
+  --bg-secondary: rgb(17, 24, 39);
+  --bg-tertiary: rgb(31, 41, 55);
+  --bg-panel: rgba(17, 24, 39, 0.8);
+  --border-primary: rgb(55, 65, 81);
+  --border-secondary: rgb(75, 85, 99);
+  --text-primary: rgb(243, 244, 246);
+  --text-secondary: rgb(156, 163, 175);
+  --text-muted: rgb(107, 114, 128);
+  --text-heading: rgb(236, 254, 255);
+  --hover-accent: rgba(8, 51, 68, 0.2);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.3);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.5);
+}
+
+/* Light theme: only the map basemap changes — UI stays dark */
+[data-theme="light"] {
+  --background: #000000;
+  --foreground: #ededed;
+  --bg-primary: #000000;
+  --bg-secondary: rgb(17, 24, 39);
+  --bg-tertiary: rgb(31, 41, 55);
+  --bg-panel: rgba(17, 24, 39, 0.8);
+  --border-primary: rgb(55, 65, 81);
+  --border-secondary: rgb(75, 85, 99);
+  --text-primary: rgb(243, 244, 246);
+  --text-secondary: rgb(156, 163, 175);
+  --text-muted: rgb(107, 114, 128);
+  --text-heading: rgb(236, 254, 255);
+  --hover-accent: rgba(8, 51, 68, 0.2);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.3);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.5);
 }
 
 @theme inline {
@@ -10,13 +42,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
@@ -35,12 +60,12 @@ body {
 }
 
 .styled-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
+  background: var(--scrollbar-thumb);
   border-radius: 10px;
 }
 
 .styled-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.5);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .styled-scrollbar {

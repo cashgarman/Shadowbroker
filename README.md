@@ -75,6 +75,19 @@ Open `http://localhost:3000` to view the dashboard! *(Requires Docker)*
   * Head of state & government type (Wikidata SPARQL)
   * Local Wikipedia summary with thumbnail
 
+### 🛰️ Satellite Imagery
+
+* **NASA GIBS (MODIS Terra)** — Daily true-color satellite imagery overlay with 30-day time slider, play/pause animation, and opacity control (~250m/pixel)
+* **High-Res Satellite (Esri)** — Sub-meter resolution imagery via Esri World Imagery — zoom into buildings and terrain detail (zoom 18+)
+* **Sentinel-2 Intel Card** — Right-click anywhere on the map for a floating intel card showing the latest Sentinel-2 satellite photo with capture date, cloud cover %, and clickable full-resolution image (10m resolution, updated every ~5 days)
+* **SATELLITE Style Preset** — Quick-toggle high-res imagery via the STYLE button (DEFAULT → SATELLITE → FLIR → NVG → CRT)
+
+### 📻 Software-Defined Radio (SDR)
+
+* **KiwiSDR Receivers** — 500+ public SDR receivers plotted worldwide with clustered amber markers
+* **Live Radio Tuner** — Click any KiwiSDR node to open an embedded SDR tuner directly in the SIGINT panel
+* **Metadata Display** — Node name, location, antenna type, frequency bands, active users
+
 ### 📷 Surveillance
 
 * **CCTV Mesh** — 2,000+ live traffic cameras from:
@@ -99,6 +112,7 @@ Open `http://localhost:3000` to view the dashboard! *(Requires Docker)*
 * **Day/Night Cycle** — Solar terminator overlay showing global daylight/darkness
 * **Global Markets Ticker** — Live financial market indices (minimizable)
 * **Measurement Tool** — Point-to-point distance & bearing measurement on the map
+* **LOCATE Bar** — Search by coordinates (31.8, 34.8) or place name (Tehran, Strait of Hormuz) to fly directly to any location — geocoded via OpenStreetMap Nominatim
 
 ---
 
@@ -155,6 +169,11 @@ Open `http://localhost:3000` to view the dashboard! *(Requires Docker)*
 | [RestCountries](https://restcountries.com) | Country profile data | On-demand (cached 24h) | No |
 | [Wikidata SPARQL](https://query.wikidata.org) | Head of state data | On-demand (cached 24h) | No |
 | [Wikipedia API](https://en.wikipedia.org/api) | Location summaries & aircraft images | On-demand (cached) | No |
+| [NASA GIBS](https://gibs.earthdata.nasa.gov) | MODIS Terra daily satellite imagery | Daily (24-48h delay) | No |
+| [Esri World Imagery](https://www.arcgis.com) | High-res satellite basemap | Static (periodically updated) | No |
+| [MS Planetary Computer](https://planetarycomputer.microsoft.com) | Sentinel-2 L2A scenes (right-click) | On-demand | No |
+| [KiwiSDR](https://kiwisdr.com) | Public SDR receiver locations | ~30min | No |
+| [OSM Nominatim](https://nominatim.openstreetmap.org) | Place name geocoding (LOCATE bar) | On-demand | No |
 | [CARTO Basemaps](https://carto.com) | Dark map tiles | Continuous | No |
 
 ---
@@ -176,12 +195,23 @@ docker-compose up -d --build
 
 Open `http://localhost:3000` to view the dashboard.
 
-> **Custom ports or LAN access?** The frontend auto-detects the backend at
-> `<your-hostname>:8000`. If you remap the backend to a different port
-> (e.g. `"9096:8000"`), set `NEXT_PUBLIC_API_URL` before building:
+> **Deploying publicly or on a LAN?** The frontend **auto-detects** the
+> backend — it uses your browser's hostname with port `8000`
+> (e.g. if you visit `http://192.168.1.50:3000`, API calls go to
+> `http://192.168.1.50:8000`). **No configuration needed** for most setups.
+>
+> If your backend runs on a **different port or host** (reverse proxy,
+> custom Docker port mapping, separate server), set `NEXT_PUBLIC_API_URL`:
 >
 > ```bash
-> NEXT_PUBLIC_API_URL=http://192.168.1.50:9096 docker-compose up -d --build
+> # Linux / macOS
+> NEXT_PUBLIC_API_URL=http://myserver.com:9096 docker-compose up -d --build
+>
+> # Windows (PowerShell)
+> $env:NEXT_PUBLIC_API_URL="http://myserver.com:9096"; docker-compose up -d --build
+>
+> # Or add to a .env file next to docker-compose.yml:
+> # NEXT_PUBLIC_API_URL=http://myserver.com:9096
 > ```
 >
 > This is a **build-time** variable (Next.js limitation) — it gets baked into
@@ -225,7 +255,7 @@ cd backend
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # macOS/Linux
-pip install -r requirements.txt
+pip install -r requirements.txt   # includes pystac-client for Sentinel-2
 
 # Create .env with your API keys
 echo "AIS_API_KEY=your_aisstream_key" >> .env
@@ -271,6 +301,9 @@ All layers are independently toggleable from the left panel:
 | Ukraine Frontline | ✅ ON | Live warfront positions |
 | Global Incidents | ✅ ON | GDELT conflict events |
 | GPS Jamming | ✅ ON | NAC-P degradation zones |
+| MODIS Terra (Daily) | ❌ OFF | NASA GIBS daily satellite imagery |
+| High-Res Satellite | ❌ OFF | Esri sub-meter satellite imagery |
+| KiwiSDR Receivers | ❌ OFF | Public SDR radio receivers |
 | Day / Night Cycle | ✅ ON | Solar terminator overlay |
 
 ---
@@ -306,6 +339,8 @@ live-risk-dashboard/
 │       ├── geopolitics.py          # GDELT + Ukraine frontline fetcher
 │       ├── region_dossier.py       # Right-click country/city intelligence
 │       ├── radio_intercept.py      # Scanner radio feed integration
+│       ├── kiwisdr_fetcher.py      # KiwiSDR receiver scraper
+│       ├── sentinel_search.py      # Sentinel-2 STAC imagery search
 │       ├── network_utils.py        # HTTP client with curl fallback
 │       └── api_settings.py         # API key management
 │
@@ -324,6 +359,7 @@ live-risk-dashboard/
 │   │       ├── MarketsPanel.tsx    # Global financial markets ticker
 │   │       ├── RadioInterceptPanel.tsx # Scanner-style radio panel
 │   │       ├── FindLocateBar.tsx   # Search/locate bar
+│   │       ├── ChangelogModal.tsx  # Version changelog popup
 │   │       ├── SettingsPanel.tsx   # App settings
 │   │       ├── ScaleBar.tsx        # Map scale indicator
 │   │       ├── WikiImage.tsx       # Wikipedia image fetcher
@@ -335,7 +371,7 @@ live-risk-dashboard/
 
 ## 🔑 Environment Variables
 
-Create a `.env` file in the `backend/` directory:
+### Backend (`backend/.env`)
 
 ```env
 # Required
@@ -346,6 +382,17 @@ OPENSKY_CLIENT_ID=your_opensky_client_id      # OAuth2 — higher rate limits fo
 OPENSKY_CLIENT_SECRET=your_opensky_secret     # OAuth2 — paired with Client ID above
 LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
 ```
+
+### Frontend (optional)
+
+| Variable | Where to set | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `.env` next to `docker-compose.yml`, or shell env | Override backend URL when deploying publicly or behind a reverse proxy. Leave unset for auto-detection. |
+
+**How auto-detection works:** When `NEXT_PUBLIC_API_URL` is not set, the frontend
+reads `window.location.hostname` in the browser and calls `{protocol}//{hostname}:8000`.
+This means the dashboard works on `localhost`, LAN IPs, and public domains without
+any configuration — as long as the backend is reachable on port 8000 of the same host.
 
 ---
 

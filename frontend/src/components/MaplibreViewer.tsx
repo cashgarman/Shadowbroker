@@ -9,6 +9,7 @@ import ScaleBar from "@/components/ScaleBar";
 import maplibregl from "maplibre-gl";
 import { AlertTriangle } from "lucide-react";
 import WikiImage from "@/components/WikiImage";
+import { useTheme } from "@/lib/ThemeContext";
 
 const svgPlaneCyan = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="cyan" stroke="black"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" /></svg>`)}`;
 const svgPlaneYellow = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="yellow" stroke="black"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" /></svg>`)}`;
@@ -150,13 +151,29 @@ const darkStyle = {
         }
     },
     layers: [
-        {
-            id: 'carto-dark-layer',
+        { id: 'carto-dark-layer', type: 'raster', source: 'carto-dark', minzoom: 0, maxzoom: 22 },
+        { id: 'imagery-ceiling', type: 'background', paint: { 'background-opacity': 0 } }
+    ]
+};
+
+const lightStyle = {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+        'carto-light': {
             type: 'raster',
-            source: 'carto-dark',
-            minzoom: 0,
-            maxzoom: 22
+            tiles: [
+                "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+                "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+                "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+                "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"
+            ],
+            tileSize: 256
         }
+    },
+    layers: [
+        { id: 'carto-light-layer', type: 'raster', source: 'carto-light', minzoom: 0, maxzoom: 22 },
+        { id: 'imagery-ceiling', type: 'background', paint: { 'background-opacity': 0 } }
     ]
 };
 
@@ -185,8 +202,10 @@ const MISSION_ICON_MAP: Record<string, string> = {
     'commercial_imaging': 'sat-com', 'space_station': 'sat-station'
 };
 
-const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, selectedEntity, onMouseCoords, onRightClick, regionDossier, regionDossierLoading, onViewStateChange, measureMode, onMeasureClick, measurePoints }: any) => {
+const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, selectedEntity, onMouseCoords, onRightClick, regionDossier, regionDossierLoading, onViewStateChange, measureMode, onMeasureClick, measurePoints, gibsDate, gibsOpacity }: any) => {
     const mapRef = useRef<MapRef>(null);
+    const { theme } = useTheme();
+    const mapThemeStyle = useMemo(() => theme === 'light' ? lightStyle : darkStyle, [theme]);
 
     const [viewState, setViewState] = useState<ViewState>({
         longitude: 0,
@@ -368,6 +387,29 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
             }))
         };
     }, [activeLayers.cctv, data?.cctv, inView]);
+
+    // KiwiSDR receivers — clustered amber dots
+    const kiwisdrGeoJSON = useMemo(() => {
+        if (!activeLayers.kiwisdr || !data?.kiwisdr?.length) return null;
+        return {
+            type: 'FeatureCollection' as const,
+            features: data.kiwisdr.filter((k: any) => k.lat != null && k.lon != null && inView(k.lat, k.lon)).map((k: any, i: number) => ({
+                type: 'Feature' as const,
+                properties: {
+                    id: i,
+                    type: 'kiwisdr',
+                    name: k.name || 'Unknown SDR',
+                    url: k.url || '',
+                    users: k.users || 0,
+                    users_max: k.users_max || 0,
+                    bands: k.bands || '',
+                    antenna: k.antenna || '',
+                    location: k.location || '',
+                },
+                geometry: { type: 'Point' as const, coordinates: [k.lon, k.lat] }
+            }))
+        };
+    }, [activeLayers.kiwisdr, data?.kiwisdr, inView]);
 
     // Load Images into the Map Style once loaded
     const onMapLoad = useCallback((e: any) => {
@@ -1102,7 +1144,8 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         frontlineGeoJSON && 'ukraine-frontline-layer',
         earthquakesGeoJSON && 'earthquakes-layer',
         satellitesGeoJSON && 'satellites-layer',
-        cctvGeoJSON && 'cctv-layer'
+        cctvGeoJSON && 'cctv-layer',
+        kiwisdrGeoJSON && 'kiwisdr-layer'
     ].filter(Boolean) as string[];
 
 
@@ -1134,7 +1177,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     evt.preventDefault();
                     onRightClick?.({ lat: evt.lngLat.lat, lng: evt.lngLat.lng });
                 }}
-                mapStyle={darkStyle as any}
+                mapStyle={mapThemeStyle as any}
                 mapLib={maplibregl}
                 onLoad={onMapLoad}
                 onIdle={updateBounds}
@@ -1162,6 +1205,50 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     }
                 }}
             >
+                {/* Esri World Imagery — high-res static satellite (zoom 0-18+) */}
+                {activeLayers.highres_satellite && (
+                    <Source
+                        id="esri-world-imagery"
+                        type="raster"
+                        tiles={['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']}
+                        tileSize={256}
+                        maxzoom={18}
+                        attribution="Esri, Maxar, Earthstar Geographics"
+                    >
+                        <Layer
+                            id="esri-world-imagery-layer"
+                            type="raster"
+                            beforeId="imagery-ceiling"
+                            paint={{
+                                'raster-opacity': 1,
+                                'raster-fade-duration': 300
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* NASA GIBS MODIS Terra — daily satellite imagery overlay */}
+                {activeLayers.gibs_imagery && gibsDate && (
+                    <Source
+                        key={`gibs-${gibsDate}`}
+                        id="gibs-modis"
+                        type="raster"
+                        tiles={[`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${gibsDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`]}
+                        tileSize={256}
+                        maxzoom={9}
+                    >
+                        <Layer
+                            id="gibs-modis-layer"
+                            type="raster"
+                            beforeId="imagery-ceiling"
+                            paint={{
+                                'raster-opacity': gibsOpacity ?? 0.6,
+                                'raster-fade-duration': 0
+                            }}
+                        />
+                    </Source>
+                )}
+
                 {/* SOLAR TERMINATOR — night overlay */}
                 {activeLayers.day_night && nightGeoJSON && (
                     <Source id="night-overlay" type="geojson" data={nightGeoJSON as any}>
@@ -1782,6 +1869,43 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     </Source>
                 )}
 
+                {/* KiwiSDR Receivers — clustered amber dots */}
+                {kiwisdrGeoJSON && (
+                    <Source id="kiwisdr" type="geojson" data={kiwisdrGeoJSON as any} cluster={true} clusterRadius={50} clusterMaxZoom={14}>
+                        <Layer
+                            id="kiwisdr-clusters"
+                            type="circle"
+                            filter={['has', 'point_count']}
+                            paint={{
+                                'circle-color': '#f59e0b',
+                                'circle-radius': ['step', ['get', 'point_count'], 14, 10, 18, 50, 24, 200, 30],
+                                'circle-opacity': 0.8,
+                                'circle-stroke-width': 2,
+                                'circle-stroke-color': '#d97706'
+                            }}
+                        />
+                        <Layer
+                            id="kiwisdr-cluster-count"
+                            type="symbol"
+                            filter={['has', 'point_count']}
+                            layout={{ 'text-field': '{point_count_abbreviated}', 'text-size': 12, 'text-allow-overlap': true }}
+                            paint={{ 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 1 }}
+                        />
+                        <Layer
+                            id="kiwisdr-layer"
+                            type="circle"
+                            filter={['!', ['has', 'point_count']]}
+                            paint={{
+                                'circle-color': '#f59e0b',
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2, 8, 4, 14, 6],
+                                'circle-opacity': 0.9,
+                                'circle-stroke-width': 1,
+                                'circle-stroke-color': '#d97706'
+                            }}
+                        />
+                    </Source>
+                )}
+
                 {/* Satellite positions — mission-type icons */}
                 {satellitesGeoJSON && (
                     <Source id="satellites" type="geojson" data={satellitesGeoJSON as any}>
@@ -1851,7 +1975,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                     Altitude: <span style={{ color: '#44ff88' }}>{sat.alt_km?.toLocaleString()} km</span>
                                 </div>
                                 {sat.wiki && (
-                                    <div className="mt-2 border-t border-gray-700/50 pt-2">
+                                    <div className="mt-2 border-t border-[var(--border-primary)]/50 pt-2">
                                         <WikiImage wikiUrl={sat.wiki} label={sat.sat_type || sat.name} maxH="max-h-28" accent="hover:border-cyan-500/50" />
                                     </div>
                                 )}
@@ -1903,7 +2027,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                     </div>
                                 )}
                                 {uav.wiki && (
-                                    <div className="mt-2 border-t border-gray-700/50 pt-2">
+                                    <div className="mt-2 border-t border-[var(--border-primary)]/50 pt-2">
                                         <WikiImage wikiUrl={uav.wiki} label={uav.callsign} maxH="max-h-28" accent="hover:border-red-500/50" />
                                     </div>
                                 )}
@@ -1922,25 +2046,25 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                             anchor="bottom"
                             offset={15}
                         >
-                            <div className="bg-black/90 backdrop-blur-md border border-orange-800 rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_rgba(255,140,0,0.4)] pointer-events-auto overflow-hidden w-[300px]">
+                            <div className="bg-[var(--bg-secondary)]/90 backdrop-blur-md border border-orange-800 rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_rgba(255,140,0,0.4)] pointer-events-auto overflow-hidden w-[300px]">
                                 <div className="p-2 border-b border-orange-500/30 bg-orange-950/40 flex justify-between items-center">
                                     <h2 className="text-[10px] tracking-widest font-bold text-orange-400 flex items-center gap-1">
                                         <AlertTriangle size={12} className="text-orange-400" /> NEWS ON THE GROUND
                                     </h2>
-                                    <button onClick={() => onEntityClick?.(null)} className="text-gray-400 hover:text-white">✕</button>
+                                    <button onClick={() => onEntityClick?.(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">✕</button>
                                 </div>
                                 <div className="p-3 flex flex-col gap-2">
-                                    <div className="flex justify-between items-center border-b border-gray-800 pb-1">
-                                        <span className="text-gray-500 text-[9px]">LOCATION</span>
+                                    <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-1">
+                                        <span className="text-[var(--text-muted)] text-[9px]">LOCATION</span>
                                         <span className="text-white text-[10px] font-bold text-right ml-2 break-words max-w-[150px]">{data.gdelt[selectedEntity.id as number].properties?.name || 'UNKNOWN REGION'}</span>
                                     </div>
                                     <div className="flex flex-col gap-1 mt-1">
-                                        <span className="text-gray-500 text-[9px]">LATEST REPORTS: ({data.gdelt[selectedEntity.id as number].properties?.count || 1})</span>
+                                        <span className="text-[var(--text-muted)] text-[9px]">LATEST REPORTS: ({data.gdelt[selectedEntity.id as number].properties?.count || 1})</span>
                                         <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto styled-scrollbar mt-1">
                                             {(() => {
                                                 const urls: string[] = data.gdelt[selectedEntity.id as number].properties?._urls_list || [];
                                                 const headlines: string[] = data.gdelt[selectedEntity.id as number].properties?._headlines_list || [];
-                                                if (urls.length === 0) return <span className="text-gray-500 text-[9px]">No articles available.</span>;
+                                                if (urls.length === 0) return <span className="text-[var(--text-muted)] text-[9px]">No articles available.</span>;
                                                 return urls.map((url: string, idx: number) => (
                                                     <a
                                                         key={idx}
@@ -1948,7 +2072,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         onClick={(e) => e.stopPropagation()}
-                                                        className="text-orange-400 text-[9px] underline hover:text-orange-300 block py-1 border-b border-gray-800/50 last:border-0 cursor-pointer"
+                                                        className="text-orange-400 text-[9px] underline hover:text-orange-300 block py-1 border-b border-[var(--border-primary)]/50 last:border-0 cursor-pointer"
                                                         style={{ pointerEvents: 'all' }}
                                                     >
                                                         {headlines[idx] || url}
@@ -1976,19 +2100,19 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                 anchor="bottom"
                                 offset={15}
                             >
-                                <div className="bg-black/90 backdrop-blur-md border border-yellow-800 rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_rgba(255,255,0,0.3)] pointer-events-auto overflow-hidden w-[280px]">
+                                <div className="bg-[var(--bg-secondary)]/90 backdrop-blur-md border border-yellow-800 rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_rgba(255,255,0,0.3)] pointer-events-auto overflow-hidden w-[280px]">
                                     <div className="p-2 border-b border-yellow-500/30 bg-yellow-950/40 flex justify-between items-center">
                                         <h2 className="text-[10px] tracking-widest font-bold text-yellow-400 flex items-center gap-1">
                                             <AlertTriangle size={12} className="text-yellow-400" /> REGIONAL TACTICAL EVENT
                                         </h2>
-                                        <button onClick={() => onEntityClick?.(null)} className="text-gray-400 hover:text-white">✕</button>
+                                        <button onClick={() => onEntityClick?.(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">✕</button>
                                     </div>
                                     <div className="p-3 flex flex-col gap-2">
-                                        <div className="flex flex-col gap-1 border-b border-gray-800 pb-1">
+                                        <div className="flex flex-col gap-1 border-b border-[var(--border-primary)] pb-1">
                                             <span className="text-yellow-400 text-[10px] font-bold leading-tight">{item.title}</span>
                                         </div>
-                                        <div className="flex justify-between items-center border-b border-gray-800 pb-1 mt-1">
-                                            <span className="text-gray-500 text-[9px]">TIME</span>
+                                        <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-1 mt-1">
+                                            <span className="text-[var(--text-muted)] text-[9px]">TIME</span>
                                             <span className="text-white text-[9px] font-bold">{item.timestamp || 'UNKNOWN'}</span>
                                         </div>
                                         {item.link && (
@@ -2036,22 +2160,22 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                 anchor="bottom"
                                 offset={25}
                             >
-                                <div className={`bg-black/90 backdrop-blur-md border ${borderColor} rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_${shadowColor}] pointer-events-auto overflow-hidden w-[280px]`}>
+                                <div className={`bg-[var(--bg-secondary)]/90 backdrop-blur-md border ${borderColor} rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_${shadowColor}] pointer-events-auto overflow-hidden w-[280px]`}>
                                     <div className={`p-2 border-b ${borderColor}/50 ${bgHeaderColor} flex justify-between items-center`}>
                                         <h2 className={`text-[10px] tracking-widest font-bold ${threatColor} flex items-center gap-1`}>
                                             <AlertTriangle size={12} className={threatColor} /> THREAT INTERCEPT
                                         </h2>
                                         <div className="flex items-center gap-2">
                                             <span className={`text-[10px] ${threatColor} font-mono font-bold animate-pulse`}>LVL: {item.risk_score}/10</span>
-                                            <button onClick={() => onEntityClick?.(null)} className="text-gray-400 hover:text-white">✕</button>
+                                            <button onClick={() => onEntityClick?.(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">✕</button>
                                         </div>
                                     </div>
                                     <div className="p-3 flex flex-col gap-2">
-                                        <div className="flex flex-col gap-1 border-b border-gray-800 pb-1">
+                                        <div className="flex flex-col gap-1 border-b border-[var(--border-primary)] pb-1">
                                             <span className={`text-[10px] font-bold leading-tight ${threatColor}`}>{item.title}</span>
                                         </div>
-                                        <div className="flex justify-between items-center border-b border-gray-800 pb-1 mt-1">
-                                            <span className="text-gray-500 text-[9px]">SOURCE</span>
+                                        <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-1 mt-1">
+                                            <span className="text-[var(--text-muted)] text-[9px]">SOURCE</span>
                                             <span className="text-white text-[9px] font-bold text-right ml-2">{item.source || 'UNKNOWN'}</span>
                                         </div>
                                         {item.machine_assessment && (
@@ -2094,6 +2218,65 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                             </div>
                         </div>
                     </Marker>
+                )}
+
+                {/* SENTINEL-2 IMAGERY — floating intel card on map near right-click */}
+                {selectedEntity?.type === 'region_dossier' && selectedEntity.extra && regionDossier?.sentinel2 && !regionDossierLoading && (
+                    <Popup
+                        longitude={selectedEntity.extra.lng}
+                        latitude={selectedEntity.extra.lat}
+                        anchor="top-left"
+                        offset={[20, -10]}
+                        closeButton={false}
+                        closeOnClick={false}
+                        className="sentinel-popup"
+                        maxWidth="320px"
+                    >
+                        <div className="bg-black/90 backdrop-blur-md border border-blue-500/50 rounded-lg overflow-hidden shadow-[0_0_25px_rgba(59,130,246,0.3)] pointer-events-auto" style={{ width: 300 }}>
+                            {/* Header bar */}
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-blue-950/60 border-b border-blue-500/30">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                    <span className="text-[9px] text-blue-400 font-mono tracking-[0.2em] font-bold">SENTINEL-2 IMAGERY</span>
+                                </div>
+                                <span className="text-[8px] text-blue-300/60 font-mono">{selectedEntity.extra.lat.toFixed(3)}, {selectedEntity.extra.lng.toFixed(3)}</span>
+                            </div>
+
+                            {regionDossier.sentinel2.found ? (
+                                <>
+                                    {/* Metadata row */}
+                                    <div className="flex items-center justify-between px-3 py-1.5 text-[9px] font-mono border-b border-blue-900/40">
+                                        <span className="text-blue-300">{regionDossier.sentinel2.platform}</span>
+                                        <span className="text-cyan-400 font-bold">{regionDossier.sentinel2.datetime?.slice(0, 10)}</span>
+                                        <span className="text-blue-300">{regionDossier.sentinel2.cloud_cover?.toFixed(0)}% cloud</span>
+                                    </div>
+
+                                    {/* Thumbnail */}
+                                    {regionDossier.sentinel2.thumbnail_url ? (
+                                        <a href={regionDossier.sentinel2.fullres_url || regionDossier.sentinel2.thumbnail_url} target="_blank" rel="noopener noreferrer">
+                                            <img
+                                                src={regionDossier.sentinel2.thumbnail_url}
+                                                alt="Sentinel-2 scene"
+                                                className="w-full block hover:brightness-110 transition-all cursor-pointer"
+                                                style={{ maxHeight: 220, objectFit: 'cover' }}
+                                            />
+                                        </a>
+                                    ) : (
+                                        <div className="px-3 py-4 text-[9px] text-blue-300/50 font-mono text-center">Scene found — no preview available</div>
+                                    )}
+
+                                    {/* Footer */}
+                                    <div className="px-3 py-1 bg-blue-950/40 text-[7px] text-blue-400/50 font-mono tracking-widest text-center">
+                                        CLICK IMAGE TO OPEN FULL RESOLUTION
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="px-3 py-4 text-[9px] text-blue-300/50 font-mono text-center">
+                                    No clear imagery in last 30 days
+                                </div>
+                            )}
+                        </div>
+                    </Popup>
                 )}
 
                 {/* MEASUREMENT LINES */}

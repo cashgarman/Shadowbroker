@@ -1,0 +1,174 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Satellite, Radio, MapPin, Image, Layers, Bug } from "lucide-react";
+
+const CURRENT_VERSION = "0.4";
+const STORAGE_KEY = `shadowbroker_changelog_v${CURRENT_VERSION}`;
+
+const NEW_FEATURES = [
+    {
+        icon: <Satellite size={14} className="text-cyan-400" />,
+        title: "NASA GIBS Satellite Imagery",
+        desc: "Daily MODIS Terra true-color imagery with 30-day time slider, play/pause animation, and opacity control.",
+        color: "cyan",
+    },
+    {
+        icon: <Layers size={14} className="text-green-400" />,
+        title: "High-Res Satellite (Esri)",
+        desc: "Sub-meter resolution imagery — zoom into buildings and terrain. Toggle in Data Layers or cycle to SATELLITE style.",
+        color: "green",
+    },
+    {
+        icon: <Radio size={14} className="text-amber-400" />,
+        title: "KiwiSDR Radio Receivers",
+        desc: "500+ public SDR receivers plotted worldwide. Click any node to open a live radio tuner directly in the SIGINT panel.",
+        color: "amber",
+    },
+    {
+        icon: <Image size={14} className="text-blue-400" />,
+        title: "Sentinel-2 Intel Card",
+        desc: "Right-click anywhere — a floating intel card shows the latest Sentinel-2 satellite photo with capture date and cloud cover. Click to open full resolution.",
+        color: "blue",
+    },
+    {
+        icon: <MapPin size={14} className="text-purple-400" />,
+        title: "LOCATE Bar",
+        desc: "New search bar above coordinates — enter coordinates (31.8, 34.8) or place names (Tehran, Strait of Hormuz) to fly directly there.",
+        color: "purple",
+    },
+    {
+        icon: <Layers size={14} className="text-cyan-400" />,
+        title: "SATELLITE Style Preset",
+        desc: "STYLE button now cycles: DEFAULT → SATELLITE → FLIR → NVG → CRT. SATELLITE auto-enables high-res imagery.",
+        color: "cyan",
+    },
+];
+
+const BUG_FIXES = [
+    "Satellite imagery renders below all data icons — flights, ships, markers always visible on top",
+    "Sentinel-2 click now opens the actual high-res PNG image directly in browser",
+    "Light/dark theme fixed — UI stays dark, only the map basemap switches",
+];
+
+export function useChangelog() {
+    const [show, setShow] = useState(false);
+    useEffect(() => {
+        const seen = localStorage.getItem(STORAGE_KEY);
+        if (!seen) setShow(true);
+    }, []);
+    return { showChangelog: show, setShowChangelog: setShow };
+}
+
+interface ChangelogModalProps {
+    onClose: () => void;
+}
+
+const ChangelogModal = React.memo(function ChangelogModal({ onClose }: ChangelogModalProps) {
+    const handleDismiss = () => {
+        localStorage.setItem(STORAGE_KEY, "true");
+        onClose();
+    };
+
+    return (
+        <AnimatePresence>
+            <motion.div
+                key="changelog-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[10000]"
+                onClick={handleDismiss}
+            />
+            <motion.div
+                key="changelog-modal"
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="fixed inset-0 z-[10001] flex items-center justify-center pointer-events-none"
+            >
+                <div
+                    className="w-[560px] max-h-[85vh] bg-[var(--bg-secondary)]/98 border border-cyan-900/50 rounded-xl shadow-[0_0_80px_rgba(0,200,255,0.08)] pointer-events-auto flex flex-col overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* Header */}
+                    <div className="p-5 pb-3 border-b border-[var(--border-primary)]/80">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <div className="px-2 py-1 rounded bg-cyan-500/15 border border-cyan-500/30 text-[10px] font-mono font-bold text-cyan-400 tracking-widest">
+                                        v{CURRENT_VERSION}
+                                    </div>
+                                    <h2 className="text-sm font-bold tracking-[0.15em] text-[var(--text-primary)] font-mono">
+                                        WHAT&apos;S NEW
+                                    </h2>
+                                </div>
+                                <p className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest mt-1">
+                                    SHADOWBROKER INTELLIGENCE PLATFORM UPDATE
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleDismiss}
+                                className="w-8 h-8 rounded-lg border border-[var(--border-primary)] hover:border-red-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 transition-all hover:bg-red-950/20"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto styled-scrollbar p-5 space-y-4">
+                        {/* New Features */}
+                        <div>
+                            <div className="text-[9px] font-mono tracking-[0.2em] text-cyan-400 font-bold mb-3 flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                NEW CAPABILITIES
+                            </div>
+                            <div className="space-y-2">
+                                {NEW_FEATURES.map((f) => (
+                                    <div key={f.title} className="flex items-start gap-3 p-3 rounded-lg border border-[var(--border-primary)]/50 bg-[var(--bg-primary)]/30 hover:border-[var(--border-secondary)] transition-colors">
+                                        <div className="mt-0.5 flex-shrink-0">{f.icon}</div>
+                                        <div>
+                                            <div className="text-[10px] font-mono text-[var(--text-primary)] font-bold">{f.title}</div>
+                                            <div className="text-[9px] font-mono text-[var(--text-muted)] leading-relaxed mt-0.5">{f.desc}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Bug Fixes */}
+                        <div>
+                            <div className="text-[9px] font-mono tracking-[0.2em] text-green-400 font-bold mb-3 flex items-center gap-2">
+                                <Bug size={10} className="text-green-400" />
+                                FIXES &amp; IMPROVEMENTS
+                            </div>
+                            <div className="space-y-1.5">
+                                {BUG_FIXES.map((fix, i) => (
+                                    <div key={i} className="flex items-start gap-2 px-3 py-1.5">
+                                        <span className="text-green-500 text-[10px] mt-0.5 flex-shrink-0">+</span>
+                                        <span className="text-[9px] font-mono text-[var(--text-secondary)] leading-relaxed">{fix}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 border-t border-[var(--border-primary)]/80 flex items-center justify-center">
+                        <button
+                            onClick={handleDismiss}
+                            className="px-8 py-2.5 rounded-lg bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25 text-[10px] font-mono tracking-[0.2em] transition-all"
+                        >
+                            ACKNOWLEDGED
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        </AnimatePresence>
+    );
+});
+
+export default ChangelogModal;

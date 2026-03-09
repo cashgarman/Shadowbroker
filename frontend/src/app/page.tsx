@@ -16,9 +16,104 @@ import MapLegend from "@/components/MapLegend";
 import ScaleBar from "@/components/ScaleBar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import OnboardingModal, { useOnboarding } from "@/components/OnboardingModal";
+import ChangelogModal, { useChangelog } from "@/components/ChangelogModal";
 
 // Use dynamic loads for Maplibre to avoid SSR window is not defined errors
 const MaplibreViewer = dynamic(() => import('@/components/MaplibreViewer'), { ssr: false });
+
+/* ── LOCATE BAR ── coordinate / place-name search above bottom status bar ── */
+function LocateBar({ onLocate }: { onLocate: (lat: number, lng: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const [results, setResults] = useState<{ label: string; lat: number; lng: number }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+
+  // Parse raw coordinate input: "31.8, 34.8" or "31.8 34.8" or "-12.3, 45.6"
+  const parseCoords = (s: string): { lat: number; lng: number } | null => {
+    const m = s.trim().match(/^([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)$/);
+    if (!m) return null;
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) return { lat, lng };
+    return null;
+  };
+
+  const handleSearch = async (q: string) => {
+    setValue(q);
+    // Check for raw coordinates first
+    const coords = parseCoords(q);
+    if (coords) {
+      setResults([{ label: `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`, ...coords }]);
+      return;
+    }
+    // Geocode with Nominatim (debounced)
+    clearTimeout(timerRef.current);
+    if (q.trim().length < 2) { setResults([]); return; }
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`, {
+          headers: { 'Accept-Language': 'en' },
+        });
+        const data = await res.json();
+        setResults(data.map((r: any) => ({ label: r.display_name, lat: parseFloat(r.lat), lng: parseFloat(r.lon) })));
+      } catch { setResults([]); }
+      setLoading(false);
+    }, 350);
+  };
+
+  const handleSelect = (r: { lat: number; lng: number }) => {
+    onLocate(r.lat, r.lng);
+    setOpen(false);
+    setValue('');
+    setResults([]);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border-primary)] rounded-lg px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] text-[var(--text-muted)] hover:text-cyan-400 hover:border-cyan-800 transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        LOCATE
+      </button>
+    );
+  }
+
+  return (
+    <div className="relative w-[420px]">
+      <div className="flex items-center gap-2 bg-[var(--bg-primary)]/80 backdrop-blur-md border border-cyan-800/60 rounded-lg px-3 py-2 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-500 flex-shrink-0"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => handleSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); setValue(''); setResults([]); } if (e.key === 'Enter' && results.length > 0) handleSelect(results[0]); }}
+          placeholder="Enter coordinates (31.8, 34.8) or place name..."
+          className="flex-1 bg-transparent text-[10px] text-[var(--text-primary)] font-mono tracking-wider outline-none placeholder:text-[var(--text-muted)]"
+        />
+        {loading && <div className="w-3 h-3 border border-cyan-500 border-t-transparent rounded-full animate-spin" />}
+        <button onClick={() => { setOpen(false); setValue(''); setResults([]); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      {results.length > 0 && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--bg-secondary)]/95 backdrop-blur-md border border-[var(--border-primary)] rounded-lg overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.4)] max-h-[200px] overflow-y-auto styled-scrollbar">
+          {results.map((r, i) => (
+            <button key={i} onClick={() => handleSelect(r)} className="w-full text-left px-3 py-2 hover:bg-cyan-950/40 transition-colors border-b border-[var(--border-primary)]/50 last:border-0 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-500 flex-shrink-0"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span className="text-[9px] text-[var(--text-secondary)] font-mono truncate">{r.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const dataRef = useRef<any>({});
@@ -48,19 +143,33 @@ export default function Dashboard() {
     global_incidents: true,
     day_night: true,
     gps_jamming: true,
+    gibs_imagery: false,
+    highres_satellite: false,
+    kiwisdr: false,
   });
+
+  // NASA GIBS satellite imagery state
+  const [gibsDate, setGibsDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [gibsOpacity, setGibsOpacity] = useState(0.6);
 
   const [effects, setEffects] = useState({
     bloom: true,
   });
 
   const [activeStyle, setActiveStyle] = useState('DEFAULT');
-  const stylesList = ['DEFAULT', 'FLIR', 'NVG', 'CRT'];
+  const stylesList = ['DEFAULT', 'SATELLITE', 'FLIR', 'NVG', 'CRT'];
 
   const cycleStyle = () => {
     setActiveStyle((prev) => {
       const idx = stylesList.indexOf(prev);
-      return stylesList[(idx + 1) % stylesList.length];
+      const next = stylesList[(idx + 1) % stylesList.length];
+      // Auto-toggle High-Res Satellite layer with SATELLITE style
+      setActiveLayers((l: any) => ({ ...l, highres_satellite: next === 'SATELLITE' }));
+      return next;
     });
   };
 
@@ -79,6 +188,7 @@ export default function Dashboard() {
 
   // Onboarding & connection status
   const { showOnboarding, setShowOnboarding } = useOnboarding();
+  const { showChangelog, setShowChangelog } = useChangelog();
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const geocodeCache = useRef<Map<string, string>>(new Map());
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,11 +262,19 @@ export default function Dashboard() {
     setRegionDossierLoading(true);
     setRegionDossier(null);
     try {
-      const res = await fetch(`${API_BASE}/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRegionDossier(data);
+      const [dossierRes, sentinelRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`),
+        fetch(`${API_BASE}/api/sentinel2/search?lat=${coords.lat}&lng=${coords.lng}`),
+      ]);
+      let dossierData: any = {};
+      if (dossierRes.status === 'fulfilled' && dossierRes.value.ok) {
+        dossierData = await dossierRes.value.json();
       }
+      let sentinelData = null;
+      if (sentinelRes.status === 'fulfilled' && sentinelRes.value.ok) {
+        sentinelData = await sentinelRes.value.json();
+      }
+      setRegionDossier({ ...dossierData, sentinel2: sentinelData });
     } catch (e) {
       console.error("Failed to fetch region dossier", e);
     } finally {
@@ -228,7 +346,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <main className="fixed inset-0 w-full h-full bg-black overflow-hidden font-sans">
+    <main className="fixed inset-0 w-full h-full bg-[var(--bg-primary)] overflow-hidden font-sans">
 
       {/* MAPLIBRE WEBGL OVERLAY */}
       <ErrorBoundary name="Map">
@@ -240,6 +358,8 @@ export default function Dashboard() {
           onEntityClick={setSelectedEntity}
           selectedEntity={selectedEntity}
           flyToLocation={flyToLocation}
+          gibsDate={gibsDate}
+          gibsOpacity={gibsOpacity}
           isEavesdropping={isEavesdropping}
           onEavesdropClick={setEavesdropLocation}
           onCameraMove={setCameraCenter}
@@ -274,10 +394,10 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex flex-col">
-              <h1 className="text-2xl font-bold tracking-[0.4em] text-white flex items-center gap-3" style={{ fontFamily: 'monospace' }}>
+              <h1 className="text-2xl font-bold tracking-[0.4em] text-[var(--text-primary)] flex items-center gap-3" style={{ fontFamily: 'monospace' }}>
                 S H A D O W <span className="text-cyan-400">B R O K E R</span>
               </h1>
-              <span className="text-[9px] text-gray-500 font-mono tracking-[0.3em] mt-1 ml-1">GLOBAL THREAT INTERCEPT</span>
+              <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-[0.3em] mt-1 ml-1">GLOBAL THREAT INTERCEPT</span>
             </div>
           </motion.div>
 
@@ -287,7 +407,7 @@ export default function Dashboard() {
           </div>
 
           {/* SYSTEM METRICS TOP RIGHT */}
-          <div className="absolute top-2 right-6 text-[9px] flex flex-col items-end font-mono tracking-widest text-gray-600 z-[200] pointer-events-none">
+          <div className="absolute top-2 right-6 text-[9px] flex flex-col items-end font-mono tracking-widest text-[var(--text-muted)] z-[200] pointer-events-none">
             <div>RTX</div>
             <div>VSR</div>
           </div>
@@ -295,7 +415,7 @@ export default function Dashboard() {
           {/* LEFT HUD CONTAINER */}
           <div className="absolute left-6 top-24 bottom-6 w-80 flex flex-col gap-6 z-[200] pointer-events-none">
             {/* LEFT PANEL - DATA LAYERS */}
-            <WorldviewLeftPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} onSettingsClick={() => setSettingsOpen(true)} onLegendClick={() => setLegendOpen(true)} />
+            <WorldviewLeftPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} onSettingsClick={() => setSettingsOpen(true)} onLegendClick={() => setLegendOpen(true)} gibsDate={gibsDate} setGibsDate={setGibsDate} gibsOpacity={gibsOpacity} setGibsOpacity={setGibsOpacity} />
 
             {/* LEFT BOTTOM - DISPLAY CONFIG */}
             <WorldviewRightPanel effects={effects} setEffects={setEffects} setUiVisible={setUiVisible} />
@@ -335,6 +455,7 @@ export default function Dashboard() {
                 setIsEavesdropping={setIsEavesdropping}
                 eavesdropLocation={eavesdropLocation}
                 cameraCenter={cameraCenter}
+                selectedEntity={selectedEntity}
               />
             </div>
 
@@ -354,37 +475,40 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1, duration: 1 }}
-            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[200] pointer-events-auto"
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[200] pointer-events-auto flex flex-col items-center gap-2"
           >
+            {/* LOCATE BAR — search by coordinates or place name */}
+            <LocateBar onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} />
+
             <div
-              className="bg-black/60 backdrop-blur-md border border-gray-800 rounded-xl px-6 py-2.5 flex items-center gap-6 shadow-[0_4px_30px_rgba(0,0,0,0.5)] border-b-2 border-b-cyan-900 cursor-pointer"
+              className="bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border-primary)] rounded-xl px-6 py-2.5 flex items-center gap-6 shadow-[0_4px_30px_rgba(0,0,0,0.2)] border-b-2 border-b-cyan-900 cursor-pointer"
               onClick={cycleStyle}
             >
               {/* Coordinates */}
               <div className="flex flex-col items-center min-w-[120px]">
-                <div className="text-[8px] text-gray-600 font-mono tracking-[0.2em]">COORDINATES</div>
+                <div className="text-[8px] text-[var(--text-muted)] font-mono tracking-[0.2em]">COORDINATES</div>
                 <div className="text-[11px] text-cyan-400 font-mono font-bold tracking-wide">
                   {mouseCoords ? `${mouseCoords.lat.toFixed(4)}, ${mouseCoords.lng.toFixed(4)}` : '0.0000, 0.0000'}
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="w-px h-8 bg-gray-700" />
+              <div className="w-px h-8 bg-[var(--border-primary)]" />
 
               {/* Location name */}
               <div className="flex flex-col items-center min-w-[180px] max-w-[320px]">
-                <div className="text-[8px] text-gray-600 font-mono tracking-[0.2em]">LOCATION</div>
-                <div className="text-[10px] text-gray-300 font-mono truncate max-w-[320px]">
+                <div className="text-[8px] text-[var(--text-muted)] font-mono tracking-[0.2em]">LOCATION</div>
+                <div className="text-[10px] text-[var(--text-secondary)] font-mono truncate max-w-[320px]">
                   {locationLabel || 'Hover over map...'}
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="w-px h-8 bg-gray-700" />
+              <div className="w-px h-8 bg-[var(--border-primary)]" />
 
               {/* Style preset (compact) */}
               <div className="flex flex-col items-center">
-                <div className="text-[8px] text-gray-600 font-mono tracking-[0.2em]">STYLE</div>
+                <div className="text-[8px] text-[var(--text-muted)] font-mono tracking-[0.2em]">STYLE</div>
                 <div className="text-[11px] text-cyan-400 font-mono font-bold">{activeStyle}</div>
               </div>
             </div>
@@ -396,7 +520,7 @@ export default function Dashboard() {
       {!uiVisible && (
         <button
           onClick={() => setUiVisible(true)}
-          className="absolute bottom-6 right-6 z-[200] bg-black/60 backdrop-blur-md border border-gray-800 rounded px-4 py-2 text-[10px] font-mono tracking-widest text-cyan-500 hover:text-cyan-300 hover:border-cyan-800 transition-colors pointer-events-auto"
+          className="absolute bottom-6 right-6 z-[200] bg-[var(--bg-primary)]/60 backdrop-blur-md border border-[var(--border-primary)] rounded px-4 py-2 text-[10px] font-mono tracking-widest text-cyan-500 hover:text-cyan-300 hover:border-cyan-800 transition-colors pointer-events-auto"
         >
           RESTORE UI
         </button>
@@ -439,6 +563,11 @@ export default function Dashboard() {
           onClose={() => setShowOnboarding(false)}
           onOpenSettings={() => { setShowOnboarding(false); setSettingsOpen(true); }}
         />
+      )}
+
+      {/* v0.4 CHANGELOG MODAL — shows once per version after onboarding */}
+      {!showOnboarding && showChangelog && (
+        <ChangelogModal onClose={() => setShowChangelog(false)} />
       )}
 
       {/* BACKEND DISCONNECTED BANNER */}

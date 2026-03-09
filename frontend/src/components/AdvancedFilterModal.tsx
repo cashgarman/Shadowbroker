@@ -171,16 +171,16 @@ export default function AdvancedFilterModal({
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.92 }}
                     transition={{ duration: 0.2 }}
-                    className={`bg-[#0a0e14]/95 backdrop-blur-xl border ${c.border} rounded-xl shadow-[0_8px_60px_rgba(0,0,0,0.8)] flex flex-col font-mono overflow-hidden`}
+                    className={`bg-[var(--bg-secondary)]/95 backdrop-blur-xl border ${c.border} rounded-xl shadow-[0_8px_60px_rgba(0,0,0,0.3)] flex flex-col font-mono overflow-hidden`}
                     style={{ maxHeight: '70vh' }}
                 >
                     {/* ── Title Bar (Draggable) ── */}
                     <div
-                        className="flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing border-b border-gray-800/60 select-none flex-shrink-0"
+                        className="flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing border-b border-[var(--border-primary)]/60 select-none flex-shrink-0"
                         onMouseDown={handleMouseDown}
                     >
                         <div className="flex items-center gap-2.5">
-                            <GripHorizontal size={14} className="text-gray-600" />
+                            <GripHorizontal size={14} className="text-[var(--text-muted)]" />
                             {icon}
                             <span className={`text-[11px] ${c.text} tracking-[0.25em] font-semibold`}>{title}</span>
                             {totalSelected > 0 && (
@@ -189,14 +189,14 @@ export default function AdvancedFilterModal({
                                 </span>
                             )}
                         </div>
-                        <button onClick={onClose} className="text-gray-600 hover:text-white transition-colors p-1 rounded hover:bg-gray-800">
+                        <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 rounded hover:bg-[var(--bg-tertiary)]">
                             <X size={14} />
                         </button>
                     </div>
 
                     {/* ── Tab Bar (for multi-field categories) ── */}
                     {fields.length > 1 && (
-                        <div className="flex border-b border-gray-800/40 px-3 pt-2 gap-1 flex-shrink-0">
+                        <div className="flex border-b border-[var(--border-primary)]/40 px-3 pt-2 gap-1 flex-shrink-0">
                             {fields.map(field => {
                                 const isActive = activeTab === field.key;
                                 const count = draft[field.key]?.size || 0;
@@ -257,7 +257,7 @@ export default function AdvancedFilterModal({
                                 value={searchTerms[activeTab] || ''}
                                 onChange={(e) => setSearchTerms(prev => ({ ...prev, [activeTab]: e.target.value }))}
                                 placeholder={`Search ${activeField?.label.toLowerCase() || ''}...`}
-                                className={`w-full bg-black/50 border border-gray-700/70 rounded-lg text-[11px] text-gray-300 pl-8 pr-8 py-2 font-mono tracking-wide focus:outline-none focus:${c.border} focus:ring-1 ${c.ring} placeholder-gray-600 transition-all`}
+                                className={`w-full bg-[var(--bg-primary)]/50 border border-[var(--border-primary)]/70 rounded-lg text-[11px] text-[var(--text-secondary)] pl-8 pr-8 py-2 font-mono tracking-wide focus:outline-none focus:${c.border} focus:ring-1 ${c.ring} placeholder-[var(--text-muted)] transition-all`}
                                 autoFocus
                             />
                             {searchTerms[activeTab] && (
@@ -270,10 +270,10 @@ export default function AdvancedFilterModal({
                             )}
                         </div>
                         <div className="flex justify-between mt-1.5">
-                            <span className="text-[8px] text-gray-600 tracking-widest">
+                            <span className="text-[8px] text-[var(--text-muted)] tracking-widest">
                                 {filteredOptions.length} AVAILABLE
                             </span>
-                            <span className="text-[8px] text-gray-600 tracking-widest">
+                            <span className="text-[8px] text-[var(--text-muted)] tracking-widest">
                                 {draft[activeTab]?.size || 0} SELECTED
                             </span>
                         </div>
@@ -282,7 +282,7 @@ export default function AdvancedFilterModal({
                     {/* ── Scrollable Checkbox List ── */}
                     <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 styled-scrollbar" style={{ maxHeight: '35vh' }}>
                         {filteredOptions.length === 0 ? (
-                            <div className="text-center py-8 text-gray-600 text-[10px] tracking-widest">
+                            <div className="text-center py-8 text-[var(--text-muted)] text-[10px] tracking-widest">
                                 NO MATCHING RESULTS
                             </div>
                         ) : (
@@ -295,13 +295,13 @@ export default function AdvancedFilterModal({
                                             onClick={() => toggleItem(activeTab, option)}
                                             className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-left transition-all group ${isChecked
                                                 ? `${c.bg} ${c.text}`
-                                                : `text-gray-400 hover:bg-gray-800/50 hover:text-gray-200`
+                                                : `text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/50 hover:text-[var(--text-primary)]`
                                                 }`}
                                         >
                                             {/* Checkbox */}
                                             <div className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-all ${isChecked
                                                 ? `${c.border} ${c.bg}`
-                                                : 'border-gray-700 group-hover:border-gray-500'
+                                                : 'border-[var(--border-primary)] group-hover:border-[var(--border-secondary)]'
                                                 }`}>
                                                 {isChecked && <Check size={9} strokeWidth={3} />}
                                             </div>
@@ -316,7 +316,7 @@ export default function AdvancedFilterModal({
                     </div>
 
                     {/* ── Footer ── */}
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800/60 flex-shrink-0">
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border-primary)]/60 flex-shrink-0">
                         <button
                             onClick={clearAll}
                             className="text-[9px] text-red-400/70 hover:text-red-300 tracking-widest transition-colors"
@@ -326,7 +326,7 @@ export default function AdvancedFilterModal({
                         <div className="flex gap-2">
                             <button
                                 onClick={onClose}
-                                className="text-[9px] text-gray-500 hover:text-gray-300 tracking-widest border border-gray-700 rounded-md px-4 py-1.5 hover:bg-gray-800/50 transition-all"
+                                className="text-[9px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] tracking-widest border border-[var(--border-primary)] rounded-md px-4 py-1.5 hover:bg-[var(--bg-tertiary)]/50 transition-all"
                             >
                                 CANCEL
                             </button>

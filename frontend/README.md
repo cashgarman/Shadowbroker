@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ShadowBroker Frontend
 
-## Getting Started
+Next.js 16 dashboard with MapLibre GL, Cesium, and Framer Motion.
 
-First, run the development server:
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## API URL Configuration
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The frontend needs to reach the backend (default port `8000`). Resolution order:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **`NEXT_PUBLIC_API_URL`** env var — if set, used as-is (build-time, baked by Next.js)
+2. **Server-side (SSR)** — falls back to `http://localhost:8000`
+3. **Client-side (browser)** — auto-detects using `window.location.hostname:8000`
 
-## Learn More
+### Common scenarios
 
-To learn more about Next.js, take a look at the following resources:
+| Scenario | Action needed |
+|----------|---------------|
+| Local dev (`localhost:3000` + `localhost:8000`) | None — auto-detected |
+| LAN access (`192.168.x.x:3000`) | None — auto-detected from browser hostname |
+| Public deploy (same host, port 8000) | None — auto-detected |
+| Backend on different port (e.g. `9096`) | Set `NEXT_PUBLIC_API_URL=http://host:9096` before build |
+| Backend on different host | Set `NEXT_PUBLIC_API_URL=http://backend-host:8000` before build |
+| Behind reverse proxy (e.g. `/api` path) | Set `NEXT_PUBLIC_API_URL=https://yourdomain.com` before build |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Setting the variable
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# Shell (Linux/macOS)
+NEXT_PUBLIC_API_URL=http://myserver:8000 npm run build
 
-## Deploy on Vercel
+# PowerShell (Windows)
+$env:NEXT_PUBLIC_API_URL="http://myserver:8000"; npm run build
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Docker Compose (set in .env file next to docker-compose.yml)
+NEXT_PUBLIC_API_URL=http://myserver:8000
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> **Note:** This is a build-time variable. Changing it requires rebuilding the frontend.
+
+## Theming
+
+Dark mode is the default. A light/dark toggle is available in the left panel toolbar.
+Theme preference is persisted in `localStorage` as `sb-theme` and applied via
+`data-theme` attribute on `<html>`. CSS variables in `globals.css` define all
+structural colors for both themes.

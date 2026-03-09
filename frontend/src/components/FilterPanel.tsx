@@ -252,23 +252,23 @@ export default function FilterPanel({ data, activeFilters, setActiveFilters }: F
                 initial={{ y: -30, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
-                className="w-full bg-black/40 backdrop-blur-md border border-gray-800 rounded-xl z-10 flex flex-col font-mono text-sm shadow-[0_4px_30px_rgba(0,0,0,0.5)] pointer-events-auto flex-shrink-0"
+                className="w-full bg-[var(--bg-primary)]/40 backdrop-blur-md border border-[var(--border-primary)] rounded-xl z-10 flex flex-col font-mono text-sm shadow-[0_4px_30px_rgba(0,0,0,0.2)] pointer-events-auto flex-shrink-0"
             >
                 {/* Header Toggle */}
                 <div
-                    className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-900/50 transition-colors border-b border-gray-800/50"
+                    className="flex justify-between items-center p-3 cursor-pointer hover:bg-[var(--bg-secondary)]/50 transition-colors border-b border-[var(--border-primary)]/50"
                     onClick={() => setIsMinimized(!isMinimized)}
                 >
                     <div className="flex items-center gap-2">
                         <Filter size={12} className="text-cyan-500" />
-                        <span className="text-[10px] text-gray-500 font-mono tracking-widest">DATA FILTERS</span>
+                        <span className="text-[10px] text-[var(--text-muted)] font-mono tracking-widest">DATA FILTERS</span>
                         {activeCount > 0 && (
                             <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-sm">
                                 {activeCount} ACTIVE
                             </span>
                         )}
                     </div>
-                    <button className="text-gray-500 hover:text-white transition-colors">
+                    <button className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                         {isMinimized ? <SlidersHorizontal size={14} /> : <ChevronUp size={14} />}
                     </button>
                 </div>
@@ -295,20 +295,20 @@ export default function FilterPanel({ data, activeFilters, setActiveFilters }: F
                                 return (
                                     <div
                                         key={section.key}
-                                        className={`border rounded-lg transition-all cursor-pointer group ${borderColors[section.color] || 'border-gray-800'} hover:bg-black/30`}
+                                        className={`border rounded-lg transition-all cursor-pointer group ${borderColors[section.color] || 'border-[var(--border-primary)]'} hover:bg-[var(--bg-primary)]/30`}
                                         onClick={() => setOpenModal(section.key)}
                                     >
                                         <div className="flex items-center justify-between p-2.5 px-3">
                                             <div className="flex items-center gap-2">
                                                 {section.icon}
-                                                <span className="text-[9px] text-gray-400 tracking-widest group-hover:text-gray-200 transition-colors">{section.title}</span>
+                                                <span className="text-[9px] text-[var(--text-secondary)] tracking-widest group-hover:text-[var(--text-primary)] transition-colors">{section.title}</span>
                                                 {count > 0 && (
                                                     <span className={`text-[8px] ${bgColors[section.color]} ${textColors[section.color]} px-1.5 py-0.5 rounded-sm`}>
                                                         {count}
                                                     </span>
                                                 )}
                                             </div>
-                                            <SlidersHorizontal size={10} className="text-gray-600 group-hover:text-gray-400 transition-colors" />
+                                            <SlidersHorizontal size={10} className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors" />
                                         </div>
                                     </div>
                                 );

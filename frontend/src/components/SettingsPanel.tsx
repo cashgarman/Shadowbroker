@@ -114,22 +114,22 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -300 }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed left-0 top-0 bottom-0 w-[480px] bg-gray-950/95 backdrop-blur-xl border-r border-cyan-900/50 z-[9999] flex flex-col shadow-[4px_0_40px_rgba(0,0,0,0.8)]"
+                        className="fixed left-0 top-0 bottom-0 w-[480px] bg-[var(--bg-secondary)]/95 backdrop-blur-xl border-r border-cyan-900/50 z-[9999] flex flex-col shadow-[4px_0_40px_rgba(0,0,0,0.3)]"
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between p-6 border-b border-gray-800/80">
+                        <div className="flex items-center justify-between p-6 border-b border-[var(--border-primary)]/80">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
                                     <Settings size={16} className="text-cyan-400" />
                                 </div>
                                 <div>
-                                    <h2 className="text-sm font-bold tracking-[0.2em] text-white font-mono">SYSTEM CONFIG</h2>
-                                    <span className="text-[9px] text-gray-500 font-mono tracking-widest">API KEY REGISTRY</span>
+                                    <h2 className="text-sm font-bold tracking-[0.2em] text-[var(--text-primary)] font-mono">SYSTEM CONFIG</h2>
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest">API KEY REGISTRY</span>
                                 </div>
                             </div>
                             <button
                                 onClick={onClose}
-                                className="w-8 h-8 rounded-lg border border-gray-700 hover:border-red-500/50 flex items-center justify-center text-gray-500 hover:text-red-400 transition-all hover:bg-red-950/20"
+                                className="w-8 h-8 rounded-lg border border-[var(--border-primary)] hover:border-red-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 transition-all hover:bg-red-950/20"
                             >
                                 <X size={14} />
                             </button>
@@ -139,7 +139,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                         <div className="mx-4 mt-4 p-3 rounded-lg border border-cyan-900/30 bg-cyan-950/10">
                             <div className="flex items-start gap-2">
                                 <Shield size={12} className="text-cyan-500 mt-0.5 flex-shrink-0" />
-                                <p className="text-[10px] text-gray-400 font-mono leading-relaxed">
+                                <p className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
                                     API keys are stored locally in the backend <span className="text-cyan-400">.env</span> file. Keys marked with <Key size={8} className="inline text-yellow-500" /> are required for full functionality. Public APIs need no key.
                                 </p>
                             </div>
@@ -152,21 +152,21 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                 const isExpanded = expandedCategories.has(category);
 
                                 return (
-                                    <div key={category} className="rounded-lg border border-gray-800/60 overflow-hidden">
+                                    <div key={category} className="rounded-lg border border-[var(--border-primary)]/60 overflow-hidden">
                                         {/* Category Header */}
                                         <button
                                             onClick={() => toggleCategory(category)}
-                                            className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-900/50 hover:bg-gray-900/80 transition-colors"
+                                            className="w-full flex items-center justify-between px-4 py-2.5 bg-[var(--bg-secondary)]/50 hover:bg-[var(--bg-secondary)]/80 transition-colors"
                                         >
                                             <div className="flex items-center gap-2">
                                                 <span className={`text-[9px] font-mono tracking-widest font-bold px-2 py-0.5 rounded border ${colorClass}`}>
                                                     {category.toUpperCase()}
                                                 </span>
-                                                <span className="text-[10px] text-gray-500 font-mono">
+                                                <span className="text-[10px] text-[var(--text-muted)] font-mono">
                                                     {categoryApis.length} {categoryApis.length === 1 ? 'service' : 'services'}
                                                 </span>
                                             </div>
-                                            {isExpanded ? <ChevronUp size={12} className="text-gray-500" /> : <ChevronDown size={12} className="text-gray-500" />}
+                                            {isExpanded ? <ChevronUp size={12} className="text-[var(--text-muted)]" /> : <ChevronDown size={12} className="text-[var(--text-muted)]" />}
                                         </button>
 
                                         {/* APIs in Category */}
@@ -179,12 +179,12 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                     transition={{ duration: 0.2 }}
                                                 >
                                                     {categoryApis.map((api) => (
-                                                        <div key={api.id} className="border-t border-gray-800/40 px-4 py-3 hover:bg-gray-900/30 transition-colors">
+                                                        <div key={api.id} className="border-t border-[var(--border-primary)]/40 px-4 py-3 hover:bg-[var(--bg-secondary)]/30 transition-colors">
                                                             {/* API Name + Status */}
                                                             <div className="flex items-center justify-between mb-1">
                                                                 <div className="flex items-center gap-2">
                                                                     {api.required && <Key size={10} className="text-yellow-500" />}
-                                                                    <span className="text-xs font-mono text-white font-medium">{api.name}</span>
+                                                                    <span className="text-xs font-mono text-[var(--text-primary)] font-medium">{api.name}</span>
                                                                 </div>
                                                                 <div className="flex items-center gap-1.5">
                                                                     {api.has_key ? (
@@ -198,7 +198,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                                             </span>
                                                                         )
                                                                     ) : (
-                                                                        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-gray-700 text-gray-500">
+                                                                        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-primary)] text-[var(--text-muted)]">
                                                                             PUBLIC
                                                                         </span>
                                                                     )}
@@ -207,7 +207,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                                             href={api.url}
                                                                             target="_blank"
                                                                             rel="noopener noreferrer"
-                                                                            className="text-gray-600 hover:text-cyan-400 transition-colors"
+                                                                            className="text-[var(--text-muted)] hover:text-cyan-400 transition-colors"
                                                                             onClick={(e) => e.stopPropagation()}
                                                                         >
                                                                             <ExternalLink size={10} />
@@ -217,7 +217,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                             </div>
 
                                                             {/* Description */}
-                                                            <p className="text-[10px] text-gray-500 font-mono leading-relaxed mb-2">
+                                                            <p className="text-[10px] text-[var(--text-muted)] font-mono leading-relaxed mb-2">
                                                                 {api.description}
                                                             </p>
 
@@ -245,7 +245,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                                             </button>
                                                                             <button
                                                                                 onClick={() => setEditingId(null)}
-                                                                                className="px-2 py-1.5 rounded border border-gray-700 text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-[10px] font-mono"
+                                                                                className="px-2 py-1.5 rounded border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition-colors text-[10px] font-mono"
                                                                             >
                                                                                 ESC
                                                                             </button>
@@ -254,10 +254,10 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                                                                         /* Display Mode */
                                                                         <div className="flex items-center gap-1.5">
                                                                             <div
-                                                                                className="flex-1 bg-black/40 border border-gray-800 rounded px-2.5 py-1.5 font-mono text-[11px] cursor-pointer hover:border-gray-700 transition-colors select-none"
+                                                                                className="flex-1 bg-[var(--bg-primary)]/40 border border-[var(--border-primary)] rounded px-2.5 py-1.5 font-mono text-[11px] cursor-pointer hover:border-[var(--border-secondary)] transition-colors select-none"
                                                                                 onClick={() => startEditing(api)}
                                                                             >
-                                                                                <span className="text-gray-500 tracking-wider">
+                                                                                <span className="text-[var(--text-muted)] tracking-wider">
                                                                                     {api.is_set ? api.value_obfuscated : "Click to set key..."}
                                                                                 </span>
                                                                             </div>
@@ -276,8 +276,8 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                         </div>
 
                         {/* Footer */}
-                        <div className="p-4 border-t border-gray-800/80">
-                            <div className="flex items-center justify-between text-[9px] text-gray-600 font-mono">
+                        <div className="p-4 border-t border-[var(--border-primary)]/80">
+                            <div className="flex items-center justify-between text-[9px] text-[var(--text-muted)] font-mono">
                                 <span>{apis.length} REGISTERED APIs</span>
                                 <span>{apis.filter(a => a.has_key).length} KEYS CONFIGURED</span>
                             </div>

@@ -171,14 +171,14 @@ export default function FindLocateBar({ data, onLocate, onFilter }: FindLocateBa
 
     return (
         <div ref={containerRef} className="relative w-full pointer-events-auto">
-            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md border border-gray-800 rounded-lg px-3 py-2 focus-within:border-cyan-500/40 transition-colors">
-                <Search size={12} className="text-gray-500 flex-shrink-0" />
+            <div className="flex items-center gap-2 bg-[var(--bg-primary)]/40 backdrop-blur-md border border-[var(--border-primary)] rounded-lg px-3 py-2 focus-within:border-cyan-500/40 transition-colors">
+                <Search size={12} className="text-[var(--text-muted)] flex-shrink-0" />
                 <input
                     ref={inputRef}
                     type="text"
                     value={query}
                     placeholder="Find aircraft or vessel..."
-                    className="flex-1 bg-transparent text-[10px] text-gray-300 font-mono tracking-wider outline-none placeholder:text-gray-600"
+                    className="flex-1 bg-transparent text-[10px] text-[var(--text-secondary)] font-mono tracking-wider outline-none placeholder:text-[var(--text-muted)]"
                     onChange={(e) => {
                         setQuery(e.target.value);
                         setIsOpen(true);
@@ -186,11 +186,11 @@ export default function FindLocateBar({ data, onLocate, onFilter }: FindLocateBa
                     onFocus={() => setIsOpen(true)}
                 />
                 {query && (
-                    <button onClick={() => { setQuery(""); setIsOpen(false); }} className="text-gray-600 hover:text-white transition-colors">
+                    <button onClick={() => { setQuery(""); setIsOpen(false); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                         <X size={10} />
                     </button>
                 )}
-                <Crosshair size={12} className="text-gray-600 flex-shrink-0" />
+                <Crosshair size={12} className="text-[var(--text-muted)] flex-shrink-0" />
             </div>
 
             <AnimatePresence>
@@ -199,21 +199,21 @@ export default function FindLocateBar({ data, onLocate, onFilter }: FindLocateBa
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -4 }}
-                        className="absolute top-full left-0 right-0 mt-1 bg-black/90 backdrop-blur-md border border-gray-800 rounded-lg overflow-hidden z-50 shadow-[0_8px_30px_rgba(0,0,0,0.6)]"
+                        className="absolute top-full left-0 right-0 mt-1 bg-[var(--bg-secondary)]/90 backdrop-blur-md border border-[var(--border-primary)] rounded-lg overflow-hidden z-50 shadow-[0_8px_30px_rgba(0,0,0,0.3)]"
                     >
                         <div className="max-h-[300px] overflow-y-auto styled-scrollbar">
                             {filtered.map((r, idx) => (
                                 <button
                                     key={`${r.id}-${idx}`}
                                     onClick={() => handleSelect(r)}
-                                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-cyan-950/30 transition-colors text-left border-b border-gray-800/50 last:border-0 group"
+                                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-[var(--hover-accent)] transition-colors text-left border-b border-[var(--border-primary)]/50 last:border-0 group"
                                 >
-                                    <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded bg-gray-900 border border-gray-800 group-hover:border-cyan-800">
+                                    <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded bg-[var(--bg-secondary)] border border-[var(--border-primary)] group-hover:border-cyan-800">
                                         {categoryIcons[r.category]}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-[10px] text-gray-200 font-mono tracking-wide truncate">{r.label}</div>
-                                        <div className="text-[8px] text-gray-500 font-mono truncate">{r.sublabel}</div>
+                                        <div className="text-[10px] text-[var(--text-primary)] font-mono tracking-wide truncate">{r.label}</div>
+                                        <div className="text-[8px] text-[var(--text-muted)] font-mono truncate">{r.sublabel}</div>
                                     </div>
                                     <span className={`text-[7px] font-bold tracking-widest ${r.categoryColor} flex-shrink-0`}>
                                         {r.category}
@@ -221,7 +221,7 @@ export default function FindLocateBar({ data, onLocate, onFilter }: FindLocateBa
                                 </button>
                             ))}
                         </div>
-                        <div className="px-3 py-1.5 border-t border-gray-800 bg-black/50 text-[8px] text-gray-600 font-mono tracking-widest">
+                        <div className="px-3 py-1.5 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]/50 text-[8px] text-[var(--text-muted)] font-mono tracking-widest">
                             {filtered.length} RESULT{filtered.length !== 1 ? 'S' : ''} — CLICK TO LOCATE
                         </div>
                     </motion.div>
@@ -231,9 +231,9 @@ export default function FindLocateBar({ data, onLocate, onFilter }: FindLocateBa
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -4 }}
-                        className="absolute top-full left-0 right-0 mt-1 bg-black/90 backdrop-blur-md border border-gray-800 rounded-lg z-50 p-4 text-center"
+                        className="absolute top-full left-0 right-0 mt-1 bg-[var(--bg-secondary)]/90 backdrop-blur-md border border-[var(--border-primary)] rounded-lg z-50 p-4 text-center"
                     >
-                        <div className="text-[9px] text-gray-600 font-mono tracking-widest">NO MATCHING ASSETS</div>
+                        <div className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest">NO MATCHING ASSETS</div>
                     </motion.div>
                 )}
             </AnimatePresence>

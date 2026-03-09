@@ -1,11 +1,39 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plane, AlertTriangle, Activity, Satellite, Cctv, ChevronDown, ChevronUp, Ship, Eye, Anchor, Settings, Sun, BookOpen, Radio } from "lucide-react";
+import { Plane, AlertTriangle, Activity, Satellite, Cctv, ChevronDown, ChevronUp, Ship, Eye, Anchor, Settings, Sun, Moon, BookOpen, Radio, Play, Pause, Globe } from "lucide-react";
+import { useTheme } from "@/lib/ThemeContext";
 
-const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, activeLayers, setActiveLayers, onSettingsClick, onLegendClick }: { data: any; activeLayers: any; setActiveLayers: any; onSettingsClick?: () => void; onLegendClick?: () => void }) {
+const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, activeLayers, setActiveLayers, onSettingsClick, onLegendClick, gibsDate, setGibsDate, gibsOpacity, setGibsOpacity }: { data: any; activeLayers: any; setActiveLayers: any; onSettingsClick?: () => void; onLegendClick?: () => void; gibsDate?: string; setGibsDate?: (d: string) => void; gibsOpacity?: number; setGibsOpacity?: (o: number) => void }) {
     const [isMinimized, setIsMinimized] = useState(false);
+    const { theme, toggleTheme } = useTheme();
+    const [gibsPlaying, setGibsPlaying] = useState(false);
+    const gibsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // GIBS time slider play/pause animation
+    useEffect(() => {
+        if (!gibsPlaying || !setGibsDate) {
+            if (gibsIntervalRef.current) clearInterval(gibsIntervalRef.current);
+            gibsIntervalRef.current = null;
+            return;
+        }
+        gibsIntervalRef.current = setInterval(() => {
+            if (!gibsDate) return;
+            const d = new Date(gibsDate + 'T00:00:00');
+            d.setDate(d.getDate() + 1);
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (d > yesterday) {
+                const start = new Date();
+                start.setDate(start.getDate() - 30);
+                setGibsDate(start.toISOString().slice(0, 10));
+            } else {
+                setGibsDate(d.toISOString().slice(0, 10));
+            }
+        }, 1500);
+        return () => { if (gibsIntervalRef.current) clearInterval(gibsIntervalRef.current); };
+    }, [gibsPlaying, gibsDate, setGibsDate]);
 
     // Compute ship category counts
     const importantShipCount = data?.ships?.filter((s: any) => ['carrier', 'military_vessel', 'tanker', 'cargo'].includes(s.type))?.length || 0;
@@ -27,6 +55,9 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
         { id: "global_incidents", name: "Global Incidents", source: "GDELT", count: data?.gdelt?.length || 0, icon: Activity },
         { id: "cctv", name: "CCTV Mesh", source: "CCTV Mesh + Street View", count: data?.cctv?.length || 0, icon: Cctv },
         { id: "gps_jamming", name: "GPS Jamming", source: "ADS-B NACp", count: data?.gps_jamming?.length || 0, icon: Radio },
+        { id: "gibs_imagery", name: "MODIS Terra (Daily)", source: "NASA GIBS", count: null, icon: Globe },
+        { id: "highres_satellite", name: "High-Res Satellite", source: "Esri World Imagery", count: null, icon: Satellite },
+        { id: "kiwisdr", name: "KiwiSDR Receivers", source: "KiwiSDR.com", count: data?.kiwisdr?.length || 0, icon: Radio },
         { id: "day_night", name: "Day / Night Cycle", source: "Solar Calc", count: null, icon: Sun },
     ];
 
@@ -41,14 +72,21 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
         >
             {/* Header */}
             <div className="mb-6 pointer-events-auto">
-                <div className="text-[10px] text-gray-400 font-mono tracking-widest mb-1">TOP SECRET // SI-TK // NOFORN</div>
-                <div className="text-[10px] text-gray-500 font-mono tracking-widest mb-4">KH11-4094 OPS-4168</div>
+                <div className="text-[10px] text-[var(--text-secondary)] font-mono tracking-widest mb-1">TOP SECRET // SI-TK // NOFORN</div>
+                <div className="text-[10px] text-[var(--text-muted)] font-mono tracking-widest mb-4">KH11-4094 OPS-4168</div>
                 <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-bold tracking-[0.2em] text-cyan-50">FLIR</h1>
+                    <h1 className="text-2xl font-bold tracking-[0.2em] text-[var(--text-heading)]">FLIR</h1>
+                    <button
+                        onClick={toggleTheme}
+                        className="w-7 h-7 rounded-lg border border-[var(--border-primary)] hover:border-cyan-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-cyan-400 transition-all hover:bg-[var(--hover-accent)]"
+                        title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                    >
+                        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                    </button>
                     {onSettingsClick && (
                         <button
                             onClick={onSettingsClick}
-                            className="w-7 h-7 rounded-lg border border-gray-700 hover:border-cyan-500/50 flex items-center justify-center text-gray-500 hover:text-cyan-400 transition-all hover:bg-cyan-950/20 group"
+                            className="w-7 h-7 rounded-lg border border-[var(--border-primary)] hover:border-cyan-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-cyan-400 transition-all hover:bg-[var(--hover-accent)] group"
                             title="System Settings"
                         >
                             <Settings size={14} className="group-hover:rotate-90 transition-transform duration-300" />
@@ -57,7 +95,7 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
                     {onLegendClick && (
                         <button
                             onClick={onLegendClick}
-                            className="h-7 px-2 rounded-lg border border-gray-700 hover:border-cyan-500/50 flex items-center justify-center gap-1 text-gray-500 hover:text-cyan-400 transition-all hover:bg-cyan-950/20"
+                            className="h-7 px-2 rounded-lg border border-[var(--border-primary)] hover:border-cyan-500/50 flex items-center justify-center gap-1 text-[var(--text-muted)] hover:text-cyan-400 transition-all hover:bg-[var(--hover-accent)]"
                             title="Map Legend / Icon Key"
                         >
                             <BookOpen size={12} />
@@ -68,15 +106,15 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
             </div>
 
             {/* Data Layers Box */}
-            <div className="bg-black/40 backdrop-blur-md border border-gray-800 rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.5)] flex flex-col relative overflow-hidden max-h-full">
+            <div className="bg-[var(--bg-primary)]/40 backdrop-blur-md border border-[var(--border-primary)] rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.2)] flex flex-col relative overflow-hidden max-h-full">
 
                 {/* Header / Toggle */}
                 <div
-                    className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-900/50 transition-colors border-b border-gray-800/50"
+                    className="flex justify-between items-center p-4 cursor-pointer hover:bg-[var(--bg-secondary)]/50 transition-colors border-b border-[var(--border-primary)]/50"
                     onClick={() => setIsMinimized(!isMinimized)}
                 >
-                    <span className="text-[10px] text-gray-500 font-mono tracking-widest">DATA LAYERS</span>
-                    <button className="text-gray-500 hover:text-white transition-colors">
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono tracking-widest">DATA LAYERS</span>
+                    <button className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                         {isMinimized ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                     </button>
                 </div>
@@ -95,31 +133,78 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
                                     const active = activeLayers[layer.id as keyof typeof activeLayers] || false;
 
                                     return (
-                                        <div
-                                            key={idx}
-                                            className="flex items-start justify-between group cursor-pointer"
-                                            onClick={() => setActiveLayers((prev: any) => ({ ...prev, [layer.id]: !active }))}
-                                        >
-                                            <div className="flex gap-3">
-                                                <div className={`mt-1 ${active ? 'text-cyan-400' : 'text-gray-600 group-hover:text-gray-400'} transition-colors`}>
-                                                    {(['ships_important', 'ships_civilian', 'ships_passenger'].includes(layer.id)) ? shipIcon : <Icon size={16} strokeWidth={1.5} />}
+                                        <div key={idx} className="flex flex-col">
+                                            <div
+                                                className="flex items-start justify-between group cursor-pointer"
+                                                onClick={() => setActiveLayers((prev: any) => ({ ...prev, [layer.id]: !active }))}
+                                            >
+                                                <div className="flex gap-3">
+                                                    <div className={`mt-1 ${active ? 'text-cyan-400' : 'text-gray-600 group-hover:text-gray-400'} transition-colors`}>
+                                                        {(['ships_important', 'ships_civilian', 'ships_passenger'].includes(layer.id)) ? shipIcon : <Icon size={16} strokeWidth={1.5} />}
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className={`text-sm font-medium ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'} tracking-wide`}>{layer.name}</span>
+                                                        <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-wider mt-0.5">{layer.source} · {active ? 'LIVE' : 'OFF'}</span>
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-col">
-                                                    <span className={`text-sm font-medium ${active ? 'text-white' : 'text-gray-400'} tracking-wide`}>{layer.name}</span>
-                                                    <span className="text-[9px] text-gray-600 font-mono tracking-wider mt-0.5">{layer.source} · {active ? 'LIVE' : 'OFF'}</span>
+                                                <div className="flex items-center gap-3">
+                                                    {active && layer.count > 0 && (
+                                                        <span className="text-[10px] text-gray-300 font-mono">{layer.count.toLocaleString()}</span>
+                                                    )}
+                                                    <div className={`text-[9px] font-mono tracking-wider px-2 py-0.5 rounded-full border ${active
+                                                        ? 'border-cyan-500/50 text-cyan-400 bg-cyan-950/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                                                        : 'border-[var(--border-primary)] text-[var(--text-muted)] bg-transparent'
+                                                        }`}>
+                                                        {active ? 'ON' : 'OFF'}
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                {active && layer.count > 0 && (
-                                                    <span className="text-[10px] text-gray-300 font-mono">{layer.count.toLocaleString()}</span>
-                                                )}
-                                                <div className={`text-[9px] font-mono tracking-wider px-2 py-0.5 rounded-full border ${active
-                                                    ? 'border-cyan-500/50 text-cyan-400 bg-cyan-950/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                                                    : 'border-gray-800 text-gray-600 bg-transparent'
-                                                    }`}>
-                                                    {active ? 'ON' : 'OFF'}
+                                            {/* GIBS Imagery inline controls: time slider + play/pause + opacity */}
+                                            {active && layer.id === 'gibs_imagery' && gibsDate && setGibsDate && setGibsOpacity && (
+                                                <div className="ml-7 mt-2 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => setGibsPlaying(p => !p)}
+                                                            className="w-5 h-5 flex items-center justify-center rounded border border-cyan-500/30 text-cyan-400 hover:bg-cyan-950/30 transition-colors"
+                                                        >
+                                                            {gibsPlaying ? <Pause size={10} /> : <Play size={10} />}
+                                                        </button>
+                                                        <input
+                                                            type="range"
+                                                            min={0}
+                                                            max={29}
+                                                            value={(() => {
+                                                                const yesterday = new Date();
+                                                                yesterday.setDate(yesterday.getDate() - 1);
+                                                                const selected = new Date(gibsDate + 'T00:00:00');
+                                                                const diff = Math.round((yesterday.getTime() - selected.getTime()) / 86400000);
+                                                                return 29 - Math.max(0, Math.min(29, diff));
+                                                            })()}
+                                                            onChange={e => {
+                                                                const daysAgo = 29 - parseInt(e.target.value);
+                                                                const d = new Date();
+                                                                d.setDate(d.getDate() - 1 - daysAgo);
+                                                                setGibsDate(d.toISOString().slice(0, 10));
+                                                            }}
+                                                            className="flex-1 h-1 accent-cyan-500 cursor-pointer"
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[8px] text-cyan-400 font-mono">{gibsDate}</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-[8px] text-[var(--text-muted)] font-mono">OPC</span>
+                                                            <input
+                                                                type="range"
+                                                                min={0}
+                                                                max={100}
+                                                                value={Math.round((gibsOpacity ?? 0.6) * 100)}
+                                                                onChange={e => setGibsOpacity(parseInt(e.target.value) / 100)}
+                                                                className="w-16 h-1 accent-cyan-500 cursor-pointer"
+                                                            />
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
                                     )
                                 })}

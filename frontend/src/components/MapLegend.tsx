@@ -217,10 +217,10 @@ const MapLegend = React.memo(function MapLegend({ isOpen, onClose }: { isOpen: b
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-h-[80vh] bg-gray-950/95 backdrop-blur-xl border border-cyan-900/50 rounded-xl z-[9999] flex flex-col shadow-[0_0_60px_rgba(0,0,0,0.8)]"
+                        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-h-[80vh] bg-[var(--bg-secondary)]/95 backdrop-blur-xl border border-cyan-900/50 rounded-xl z-[9999] flex flex-col shadow-[0_0_60px_rgba(0,0,0,0.3)]"
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between p-5 border-b border-gray-800/80 flex-shrink-0">
+                        <div className="flex items-center justify-between p-5 border-b border-[var(--border-primary)]/80 flex-shrink-0">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="cyan" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -230,13 +230,13 @@ const MapLegend = React.memo(function MapLegend({ isOpen, onClose }: { isOpen: b
                                     </svg>
                                 </div>
                                 <div>
-                                    <h2 className="text-sm font-bold tracking-[0.2em] text-white font-mono">MAP LEGEND</h2>
-                                    <span className="text-[9px] text-gray-500 font-mono tracking-widest">ICON REFERENCE KEY</span>
+                                    <h2 className="text-sm font-bold tracking-[0.2em] text-[var(--text-primary)] font-mono">MAP LEGEND</h2>
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest">ICON REFERENCE KEY</span>
                                 </div>
                             </div>
                             <button
                                 onClick={onClose}
-                                className="w-8 h-8 rounded-lg border border-gray-700 hover:border-red-500/50 flex items-center justify-center text-gray-500 hover:text-red-400 transition-all hover:bg-red-950/20"
+                                className="w-8 h-8 rounded-lg border border-[var(--border-primary)] hover:border-red-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 transition-all hover:bg-red-950/20"
                             >
                                 <X size={14} />
                             </button>
@@ -247,16 +247,16 @@ const MapLegend = React.memo(function MapLegend({ isOpen, onClose }: { isOpen: b
                             {LEGEND.map((cat) => {
                                 const isCollapsed = collapsed.has(cat.name);
                                 return (
-                                    <div key={cat.name} className="rounded-lg border border-gray-800/60 overflow-hidden">
+                                    <div key={cat.name} className="rounded-lg border border-[var(--border-primary)]/60 overflow-hidden">
                                         {/* Category Header */}
                                         <button
                                             onClick={() => toggle(cat.name)}
-                                            className="w-full flex items-center justify-between px-3 py-2 bg-gray-900/50 hover:bg-gray-900/80 transition-colors"
+                                            className="w-full flex items-center justify-between px-3 py-2 bg-[var(--bg-secondary)]/50 hover:bg-[var(--bg-secondary)]/80 transition-colors"
                                         >
                                             <span className={`text-[9px] font-mono tracking-widest font-bold px-2 py-0.5 rounded border ${cat.color}`}>
                                                 {cat.name}
                                             </span>
-                                            {isCollapsed ? <ChevronDown size={12} className="text-gray-500" /> : <ChevronUp size={12} className="text-gray-500" />}
+                                            {isCollapsed ? <ChevronDown size={12} className="text-[var(--text-muted)]" /> : <ChevronUp size={12} className="text-[var(--text-muted)]" />}
                                         </button>
 
                                         {/* Items */}
@@ -267,13 +267,13 @@ const MapLegend = React.memo(function MapLegend({ isOpen, onClose }: { isOpen: b
                                                     animate={{ height: "auto", opacity: 1 }}
                                                     exit={{ height: 0, opacity: 0 }}
                                                     transition={{ duration: 0.15 }}
-                                                    className="border-t border-gray-800/40"
+                                                    className="border-t border-[var(--border-primary)]/40"
                                                 >
                                                     <div className="grid grid-cols-1 gap-0">
                                                         {cat.items.map((item, idx) => (
-                                                            <div key={idx} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-900/30 transition-colors">
+                                                            <div key={idx} className="flex items-center gap-3 px-4 py-1.5 hover:bg-[var(--bg-secondary)]/30 transition-colors">
                                                                 <IconImg svg={item.svg} />
-                                                                <span className="text-[11px] text-gray-300 font-mono">{item.label}</span>
+                                                                <span className="text-[11px] text-[var(--text-secondary)] font-mono">{item.label}</span>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -286,8 +286,8 @@ const MapLegend = React.memo(function MapLegend({ isOpen, onClose }: { isOpen: b
                         </div>
 
                         {/* Footer */}
-                        <div className="p-3 border-t border-gray-800/80 flex-shrink-0">
-                            <div className="text-[9px] text-gray-600 font-mono text-center tracking-wider">
+                        <div className="p-3 border-t border-[var(--border-primary)]/80 flex-shrink-0">
+                            <div className="text-[9px] text-[var(--text-muted)] font-mono text-center tracking-wider">
                                 {LEGEND.reduce((sum, c) => sum + c.items.length, 0)} ICON DEFINITIONS ACROSS {LEGEND.length} CATEGORIES
                             </div>
                         </div>

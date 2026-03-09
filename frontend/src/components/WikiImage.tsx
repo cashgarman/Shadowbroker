@@ -49,14 +49,14 @@ export default function WikiImage({ wikiUrl, label, maxH = 'max-h-32', accent = 
     return (
         <div className="pb-2">
             {loading && (
-                <div className={`w-full h-20 rounded bg-gray-800/60 animate-pulse`} />
+                <div className={`w-full h-20 rounded bg-[var(--bg-tertiary)]/60 animate-pulse`} />
             )}
             {imgUrl && (
                 <a href={wikiUrl} target="_blank" rel="noopener noreferrer" className="block">
                     <img
                         src={imgUrl}
                         alt={label || title.replace(/_/g, ' ')}
-                        className={`w-full h-auto ${maxH} object-cover rounded border border-gray-700/50 ${accent} transition-colors`}
+                        className={`w-full h-auto ${maxH} object-cover rounded border border-[var(--border-primary)]/50 ${accent} transition-colors`}
                     />
                 </a>
             )}

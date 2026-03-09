@@ -17,3 +17,4 @@ reverse_geocoder>=1.5
 sgp4>=2.23
 geopy>=2.4.0
 pytz>=2023.3
+pystac-client>=0.7.0

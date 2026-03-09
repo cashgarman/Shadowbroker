@@ -92,7 +92,8 @@ async def live_data_slow(request: Request):
         "frontlines": d.get("frontlines"),
         "gdelt": d.get("gdelt", []),
         "airports": d.get("airports", []),
-        "satellites": d.get("satellites", [])
+        "satellites": d.get("satellites", []),
+        "kiwisdr": d.get("kiwisdr", [])
     }
     # ETag based on last_updated + item counts
     last_updated = d.get("last_updated", "")
@@ -186,6 +187,13 @@ from services.region_dossier import get_region_dossier
 def api_region_dossier(lat: float, lng: float):
     """Sync def so FastAPI runs it in a threadpool — prevents blocking the event loop."""
     return get_region_dossier(lat, lng)
+
+from services.sentinel_search import search_sentinel2_scene
+
+@app.get("/api/sentinel2/search")
+def api_sentinel2_search(lat: float, lng: float):
+    """Search for latest Sentinel-2 imagery at a point. Sync for threadpool execution."""
+    return search_sentinel2_scene(lat, lng)
 
 # ---------------------------------------------------------------------------
 # API Settings — key registry & management

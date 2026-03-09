@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioReceiver, Activity, Play, Square, FastForward, ChevronDown, ChevronUp } from 'lucide-react';
 
-export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesdropping, eavesdropLocation, cameraCenter }: { data: any, isEavesdropping?: boolean, setIsEavesdropping?: (val: boolean) => void, eavesdropLocation?: { lat: number, lng: number } | null, cameraCenter?: { lat: number, lng: number } | null }) {
+export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesdropping, eavesdropLocation, cameraCenter, selectedEntity }: { data: any, isEavesdropping?: boolean, setIsEavesdropping?: (val: boolean) => void, eavesdropLocation?: { lat: number, lng: number } | null, cameraCenter?: { lat: number, lng: number } | null, selectedEntity?: { type: string, id: string | number, extra?: any } | null }) {
     const [isMinimized, setIsMinimized] = useState(true);
     const [feeds, setFeeds] = useState<any[]>([]);
     const [activeFeed, setActiveFeed] = useState<any | null>(null);
@@ -249,7 +249,7 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 1, delay: 0.2 }}
-            className="w-full flex flex-col bg-black/40 backdrop-blur-md border border-cyan-900/50 rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.5)] relative overflow-hidden max-h-full"
+            className="w-full flex flex-col bg-[var(--bg-primary)]/40 backdrop-blur-md border border-cyan-900/50 rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.2)] relative overflow-hidden max-h-full"
         >
             <div
                 className="flex items-center justify-between p-3 border-b border-cyan-900/50 cursor-pointer bg-cyan-950/20 hover:bg-cyan-900/30 transition-colors"
@@ -274,13 +274,13 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                         className="flex flex-col overflow-hidden"
                     >
                         {/* Audio Player Controls */}
-                        <div className="p-4 border-b border-cyan-900/40 bg-black/60">
+                        <div className="p-4 border-b border-cyan-900/40 bg-[var(--bg-primary)]/60">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex flex-col">
                                     <span className="text-xs text-cyan-300 font-mono tracking-wide">
                                         {activeFeed ? activeFeed.name : "NO SIGNAL"}
                                     </span>
-                                    <span className="text-[9px] text-gray-500 font-mono">
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono">
                                         {activeFeed ? `LOCATION: ${activeFeed.location.toUpperCase()}` : "AWAITING TUNING..."}
                                     </span>
                                 </div>
@@ -347,6 +347,36 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                             </div>
                         </div>
 
+                        {/* KiwiSDR Tuner — appears when a KiwiSDR node is clicked on the map */}
+                        {selectedEntity?.type === 'kiwisdr' && selectedEntity.extra?.url && (
+                            <div className="p-3 border-b border-amber-900/40 bg-amber-950/10">
+                                <div className="text-[9px] text-amber-400 font-mono tracking-widest mb-2 flex items-center gap-2">
+                                    <RadioReceiver size={10} />
+                                    SDR TUNER: {(selectedEntity.extra.name || 'REMOTE RECEIVER').toUpperCase().slice(0, 60)}
+                                </div>
+                                <div className="text-[8px] text-[var(--text-muted)] font-mono mb-2">
+                                    {selectedEntity.extra.location && <span>{selectedEntity.extra.location} · </span>}
+                                    {selectedEntity.extra.antenna && <span>{selectedEntity.extra.antenna.slice(0, 80)} · </span>}
+                                    {selectedEntity.extra.users !== undefined && <span>{selectedEntity.extra.users}/{selectedEntity.extra.users_max} users</span>}
+                                </div>
+                                <iframe
+                                    src={selectedEntity.extra.url}
+                                    className="w-full h-72 rounded border border-amber-900/50 bg-black"
+                                    allow="microphone"
+                                    sandbox="allow-scripts allow-same-origin"
+                                    title="KiwiSDR Tuner"
+                                />
+                                <a
+                                    href={selectedEntity.extra.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[8px] text-amber-500 hover:text-amber-300 font-mono mt-1 inline-block"
+                                >
+                                    OPEN IN NEW TAB →
+                                </a>
+                            </div>
+                        )}
+
                         {/* Feed List */}
                         <div className="flex-col overflow-y-auto styled-scrollbar max-h-64 p-2">
                             {feeds.length === 0 ? (
@@ -359,10 +389,10 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                                         className={`p-2 mb-1 rounded cursor-pointer border-l-2 ${activeFeed?.id === feed.id ? 'bg-cyan-900/30 border-cyan-400' : 'border-transparent hover:bg-white/5'} flex justify-between items-center transition-colors`}
                                     >
                                         <div className="flex flex-col overflow-hidden pr-2">
-                                            <span className={`text-[11px] font-mono truncate ${activeFeed?.id === feed.id ? 'text-cyan-300' : 'text-gray-300'}`}>
+                                            <span className={`text-[11px] font-mono truncate ${activeFeed?.id === feed.id ? 'text-cyan-300' : 'text-[var(--text-secondary)]'}`}>
                                                 {feed.name}
                                             </span>
-                                            <span className="text-[9px] text-gray-500 font-mono truncate">
+                                            <span className="text-[9px] text-[var(--text-muted)] font-mono truncate">
                                                 {feed.location} | {feed.category}
                                             </span>
                                         </div>
@@ -371,7 +401,7 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                                                 <Activity size={10} />
                                                 {feed.listeners.toLocaleString()}
                                             </span>
-                                            <span className="text-[8px] text-gray-600 font-mono mt-0.5">LSTN</span>
+                                            <span className="text-[8px] text-[var(--text-muted)] font-mono mt-0.5">LSTN</span>
                                         </div>
                                     </div>
                                 ))

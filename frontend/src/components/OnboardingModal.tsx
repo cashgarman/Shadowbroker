@@ -89,24 +89,24 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                 className="fixed inset-0 z-[10001] flex items-center justify-center pointer-events-none"
             >
                 <div
-                    className="w-[580px] max-h-[85vh] bg-gray-950/98 border border-cyan-900/50 rounded-xl shadow-[0_0_80px_rgba(0,200,255,0.08)] pointer-events-auto flex flex-col overflow-hidden"
+                    className="w-[580px] max-h-[85vh] bg-[var(--bg-secondary)]/98 border border-cyan-900/50 rounded-xl shadow-[0_0_80px_rgba(0,200,255,0.08)] pointer-events-auto flex flex-col overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Header */}
-                    <div className="p-6 pb-4 border-b border-gray-800/80">
+                    <div className="p-6 pb-4 border-b border-[var(--border-primary)]/80">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
                                     <Shield size={20} className="text-cyan-400" />
                                 </div>
                                 <div>
-                                    <h2 className="text-sm font-bold tracking-[0.2em] text-white font-mono">MISSION BRIEFING</h2>
-                                    <span className="text-[9px] text-gray-500 font-mono tracking-widest">FIRST-TIME SETUP</span>
+                                    <h2 className="text-sm font-bold tracking-[0.2em] text-[var(--text-primary)] font-mono">MISSION BRIEFING</h2>
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest">FIRST-TIME SETUP</span>
                                 </div>
                             </div>
                             <button
                                 onClick={handleDismiss}
-                                className="w-8 h-8 rounded-lg border border-gray-700 hover:border-red-500/50 flex items-center justify-center text-gray-500 hover:text-red-400 transition-all hover:bg-red-950/20"
+                                className="w-8 h-8 rounded-lg border border-[var(--border-primary)] hover:border-red-500/50 flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 transition-all hover:bg-red-950/20"
                             >
                                 <X size={14} />
                             </button>
@@ -122,7 +122,7 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                                 className={`flex-1 py-1.5 text-[9px] font-mono tracking-widest rounded border transition-all ${
                                     step === i
                                         ? "border-cyan-500/50 text-cyan-400 bg-cyan-950/20"
-                                        : "border-gray-800 text-gray-600 hover:border-gray-700 hover:text-gray-400"
+                                        : "border-[var(--border-primary)] text-[var(--text-muted)] hover:border-[var(--border-secondary)] hover:text-[var(--text-secondary)]"
                                 }`}
                             >
                                 {label.toUpperCase()}
@@ -135,10 +135,10 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                         {step === 0 && (
                             <div className="space-y-4">
                                 <div className="text-center py-4">
-                                    <div className="text-lg font-bold tracking-[0.3em] text-white font-mono mb-2">
+                                    <div className="text-lg font-bold tracking-[0.3em] text-[var(--text-primary)] font-mono mb-2">
                                         S H A D O W <span className="text-cyan-400">B R O K E R</span>
                                     </div>
-                                    <p className="text-[11px] text-gray-400 font-mono leading-relaxed max-w-md mx-auto">
+                                    <p className="text-[11px] text-[var(--text-secondary)] font-mono leading-relaxed max-w-md mx-auto">
                                         Real-time OSINT dashboard aggregating 12+ live intelligence sources.
                                         Flights, ships, satellites, earthquakes, conflicts, and more — all on one map.
                                     </p>
@@ -149,7 +149,7 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                                         <Key size={14} className="text-yellow-500 mt-0.5 flex-shrink-0" />
                                         <div>
                                             <p className="text-[11px] text-yellow-400 font-mono font-bold mb-1">API Keys Required</p>
-                                            <p className="text-[10px] text-gray-400 font-mono leading-relaxed">
+                                            <p className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
                                                 Two API keys are needed for full functionality: <span className="text-cyan-400">OpenSky Network</span> (flights) and <span className="text-blue-400">AIS Stream</span> (ships).
                                                 Both are free. Without them, some panels will show no data.
                                             </p>
@@ -162,7 +162,7 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                                         <Globe size={14} className="text-green-500 mt-0.5 flex-shrink-0" />
                                         <div>
                                             <p className="text-[11px] text-green-400 font-mono font-bold mb-1">8 Sources Work Immediately</p>
-                                            <p className="text-[10px] text-gray-400 font-mono leading-relaxed">
+                                            <p className="text-[10px] text-[var(--text-secondary)] font-mono leading-relaxed">
                                                 Military aircraft, satellites, earthquakes, global conflicts, weather radar, radio scanners, news, and market data all work out of the box — no keys needed.
                                             </p>
                                         </div>
@@ -190,7 +190,7 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                                                 GET KEY <ExternalLink size={10} />
                                             </a>
                                         </div>
-                                        <p className="text-[10px] text-gray-400 font-mono mb-3">{api.description}</p>
+                                        <p className="text-[10px] text-[var(--text-secondary)] font-mono mb-3">{api.description}</p>
                                         <ol className="space-y-1.5">
                                             {api.steps.map((s, i) => (
                                                 <li key={i} className="flex items-start gap-2">
@@ -214,17 +214,17 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
 
                         {step === 2 && (
                             <div className="space-y-3">
-                                <p className="text-[10px] text-gray-400 font-mono mb-3">
+                                <p className="text-[10px] text-[var(--text-secondary)] font-mono mb-3">
                                     These data sources are completely free and require no API keys. They activate automatically on launch.
                                 </p>
                                 <div className="grid grid-cols-2 gap-2">
                                     {FREE_SOURCES.map((src) => (
-                                        <div key={src.name} className="rounded-lg border border-gray-800/60 bg-gray-900/30 p-3 hover:border-gray-700 transition-colors">
+                                        <div key={src.name} className="rounded-lg border border-[var(--border-primary)]/60 bg-[var(--bg-secondary)]/30 p-3 hover:border-[var(--border-secondary)] transition-colors">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="text-green-500">{src.icon}</span>
-                                                <span className="text-[10px] font-mono text-white font-medium">{src.name}</span>
+                                                <span className="text-[10px] font-mono text-[var(--text-primary)] font-medium">{src.name}</span>
                                             </div>
-                                            <p className="text-[9px] text-gray-500 font-mono">{src.desc}</p>
+                                            <p className="text-[9px] text-[var(--text-muted)] font-mono">{src.desc}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -233,13 +233,13 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
                     </div>
 
                     {/* Footer */}
-                    <div className="p-4 border-t border-gray-800/80 flex items-center justify-between">
+                    <div className="p-4 border-t border-[var(--border-primary)]/80 flex items-center justify-between">
                         <button
                             onClick={() => setStep(Math.max(0, step - 1))}
                             className={`px-4 py-2 rounded border text-[10px] font-mono tracking-widest transition-all ${
                                 step === 0
-                                    ? "border-gray-800 text-gray-700 cursor-not-allowed"
-                                    : "border-gray-700 text-gray-400 hover:text-white hover:border-gray-600"
+                                    ? "border-[var(--border-primary)] text-[var(--text-muted)] cursor-not-allowed"
+                                    : "border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]"
                             }`}
                             disabled={step === 0}
                         >
@@ -248,7 +248,7 @@ const OnboardingModal = React.memo(function OnboardingModal({ onClose, onOpenSet
 
                         <div className="flex gap-1.5">
                             {[0, 1, 2].map((i) => (
-                                <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${step === i ? "bg-cyan-400" : "bg-gray-700"}`} />
+                                <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${step === i ? "bg-cyan-400" : "bg-[var(--border-primary)]"}`} />
                             ))}
                         </div>
 

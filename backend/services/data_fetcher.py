@@ -100,7 +100,8 @@ latest_data = {
     "uavs": [],
     "frontlines": None,
     "gdelt": [],
-    "liveuamap": []
+    "liveuamap": [],
+    "kiwisdr": []
 }
 
 # Thread lock for safe reads/writes to latest_data
@@ -1250,6 +1251,14 @@ def fetch_cctv():
         logger.error(f"Error fetching cctv from DB: {e}")
         latest_data["cctv"] = []
 
+def fetch_kiwisdr():
+    try:
+        from services.kiwisdr_fetcher import fetch_kiwisdr_nodes
+        latest_data["kiwisdr"] = fetch_kiwisdr_nodes()
+    except Exception as e:
+        logger.error(f"Error fetching KiwiSDR nodes: {e}")
+        latest_data["kiwisdr"] = []
+
 def fetch_bikeshare():
     bikes = []
     try:
@@ -1805,6 +1814,7 @@ def update_slow_data():
         fetch_cctv,
         fetch_earthquakes,
         fetch_geopolitics,
+        fetch_kiwisdr,
     ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(slow_funcs)) as executor:
         futures = [executor.submit(func) for func in slow_funcs]
