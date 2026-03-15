@@ -207,8 +207,66 @@ def get_ais_vessels() -> list[dict]:
         return result
 
 
+def ingest_ais_catcher(msgs: list[dict]) -> int:
+    """Ingest decoded AIS messages from AIS-catcher HTTP feed.
+    Returns number of vessels updated."""
+    count = 0
+    now = time.time()
+    with _vessels_lock:
+        for msg in msgs:
+            mmsi = msg.get("mmsi")
+            if not mmsi or not isinstance(mmsi, int):
+                continue
+
+            vessel = _vessels.setdefault(mmsi, {"mmsi": mmsi})
+            msg_type = msg.get("type", 0)
+
+            # Position reports (types 1, 2, 3 = Class A; 18, 19 = Class B)
+            if msg_type in (1, 2, 3, 18, 19):
+                lat = msg.get("lat")
+                lon = msg.get("lon")
+                if lat is not None and lon is not None and lat != 91.0 and lon != 181.0:
+                    vessel["lat"] = lat
+                    vessel["lng"] = lon
+                    vessel["sog"] = msg.get("speed", 0)
+                    vessel["cog"] = msg.get("course", 0)
+                    heading = msg.get("heading", 511)
+                    vessel["heading"] = heading if heading != 511 else vessel.get("cog", 0)
+                    vessel["_updated"] = now
+                    if msg.get("shipname"):
+                        vessel["name"] = msg["shipname"].strip()
+                    count += 1
+
+            # Static data (type 5 = Class A static; 24 = Class B static)
+            elif msg_type in (5, 24):
+                if msg.get("shipname"):
+                    vessel["name"] = msg["shipname"].strip()
+                if msg.get("callsign"):
+                    vessel["callsign"] = msg["callsign"].strip()
+                if msg.get("imo"):
+                    vessel["imo"] = msg["imo"]
+                if msg.get("destination"):
+                    vessel["destination"] = msg["destination"].strip().replace("@", "")
+                ship_type = msg.get("shiptype", 0)
+                if ship_type:
+                    vessel["ais_type_code"] = ship_type
+                    vessel["type"] = classify_vessel(ship_type, mmsi)
+                vessel["_updated"] = now
+
+            # Ensure country is set from MMSI MID
+            if "country" not in vessel:
+                vessel["country"] = get_country_from_mmsi(mmsi)
+
+            # Ensure name exists
+            if "name" not in vessel:
+                vessel["name"] = msg.get("shipname", "UNKNOWN") or "UNKNOWN"
+
+    return count
+
+
 def _ais_stream_loop():
     """Main loop: spawn node proxy and process messages from stdout."""
+    global _proxy_process
     import subprocess
     import os
 
@@ -220,11 +278,13 @@ def _ais_stream_loop():
             logger.info("Starting Node.js AIS Stream Proxy...")
             process = subprocess.Popen(
                 ['node', proxy_script, API_KEY],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1
             )
+            _proxy_process = process
             
             # Drain stderr in a background thread to prevent deadlock
             import threading
@@ -361,7 +421,31 @@ def start_ais_stream():
 
 def stop_ais_stream():
     """Stop the AIS WebSocket stream and save cache."""
-    global _ws_running
+    global _ws_running, _proxy_process
     _ws_running = False
+    
+    if _proxy_process and _proxy_process.stdin:
+        try:
+            _proxy_process.stdin.close()
+        except Exception:
+            pass
+            
     _save_cache()  # Save on shutdown
     logger.info("AIS Stream stopping...")
+
+def update_ais_bbox(south: float, west: float, north: float, east: float):
+    """Dynamically update the AIS stream bounding box via proxy stdin."""
+    global _proxy_process
+    if not _proxy_process or not _proxy_process.stdin:
+        return
+    
+    try:
+        cmd = json.dumps({
+            "type": "update_bbox",
+            "bboxes": [[[south, west], [north, east]]]
+        })
+        _proxy_process.stdin.write(cmd + "\n")
+        _proxy_process.stdin.flush()
+        logger.info(f"Updated AIS bounding box to: S:{south:.2f} W:{west:.2f} N:{north:.2f} E:{east:.2f}")
+    except Exception as e:
+        logger.error(f"Failed to update AIS bbox: {e}")

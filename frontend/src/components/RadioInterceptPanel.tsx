@@ -4,11 +4,12 @@ import { API_BASE } from "@/lib/api";
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioReceiver, Activity, Play, Square, FastForward, ChevronDown, ChevronUp } from 'lucide-react';
+import type { DashboardData, SelectedEntity, RadioFeed } from "@/types/dashboard";
 
-export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesdropping, eavesdropLocation, cameraCenter, selectedEntity }: { data: any, isEavesdropping?: boolean, setIsEavesdropping?: (val: boolean) => void, eavesdropLocation?: { lat: number, lng: number } | null, cameraCenter?: { lat: number, lng: number } | null, selectedEntity?: { type: string, id: string | number, extra?: any } | null }) {
+export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesdropping, eavesdropLocation, cameraCenter, selectedEntity }: { data: DashboardData, isEavesdropping?: boolean, setIsEavesdropping?: (val: boolean) => void, eavesdropLocation?: { lat: number, lng: number } | null, cameraCenter?: { lat: number, lng: number } | null, selectedEntity?: SelectedEntity | null }) {
     const [isMinimized, setIsMinimized] = useState(true);
-    const [feeds, setFeeds] = useState<any[]>([]);
-    const [activeFeed, setActiveFeed] = useState<any | null>(null);
+    const [feeds, setFeeds] = useState<RadioFeed[]>([]);
+    const [activeFeed, setActiveFeed] = useState<RadioFeed | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -113,7 +114,7 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
         }
     }, [eavesdropLocation]);
 
-    const playFeed = (feed: any) => {
+    const playFeed = (feed: RadioFeed) => {
         if (isScanning && scanTimeoutRef.current) {
             clearTimeout(scanTimeoutRef.current);
             setIsScanning(false);
@@ -135,10 +136,10 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
     useEffect(() => {
         if (activeFeed && isPlaying) {
             if (!audioRef.current) {
-                const audio = new Audio(activeFeed.stream_url);
+                const audio = new Audio(activeFeed.stream_url || '');
                 audioRef.current = audio;
             } else {
-                audioRef.current.src = activeFeed.stream_url;
+                audioRef.current.src = activeFeed.stream_url || '';
             }
             audioRef.current.volume = volume;
             audioRef.current.play().catch(e => console.log("Audio play blocked", e));
@@ -249,18 +250,18 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 1, delay: 0.2 }}
-            className="w-full flex flex-col bg-[var(--bg-primary)]/40 backdrop-blur-md border border-cyan-900/50 rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.2)] relative overflow-hidden max-h-full"
+            className="w-full flex flex-col bg-[var(--bg-primary)]/40 backdrop-blur-md border border-[var(--border-primary)] rounded-xl pointer-events-auto shadow-[0_4px_30px_rgba(0,0,0,0.2)] relative overflow-hidden max-h-full"
         >
             <div
-                className="flex items-center justify-between p-3 border-b border-cyan-900/50 cursor-pointer bg-cyan-950/20 hover:bg-cyan-900/30 transition-colors"
+                className="flex items-center justify-between p-3 border-b border-[var(--border-primary)]/50 cursor-pointer hover:bg-[var(--bg-secondary)]/50 transition-colors"
                 onClick={() => setIsMinimized(!isMinimized)}
             >
-                <div className="flex items-center gap-2 text-cyan-400">
+                <div className="flex items-center gap-2 text-[var(--text-muted)]">
                     <RadioReceiver size={14} className={isPlaying ? "animate-pulse" : ""} />
-                    <span className="text-[10px] font-mono tracking-widest font-semibold">SIGINT INTERCEPT</span>
+                    <span className="text-[10px] font-mono tracking-widest">SIGINT INTERCEPT</span>
                     {isPlaying && <Activity size={12} className="text-red-500 animate-pulse ml-2" />}
                 </div>
-                <button className="text-cyan-500 hover:text-cyan-300 transition-colors">
+                <button className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                     {isMinimized ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 </button>
             </div>
@@ -274,7 +275,7 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                         className="flex flex-col overflow-hidden"
                     >
                         {/* Audio Player Controls */}
-                        <div className="p-4 border-b border-cyan-900/40 bg-[var(--bg-primary)]/60">
+                        <div className="p-4 border-b border-[var(--border-primary)]/40 bg-[var(--bg-primary)]/60">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex flex-col">
                                     <span className="text-xs text-cyan-300 font-mono tracking-wide">
@@ -347,42 +348,12 @@ export default function RadioInterceptPanel({ data, isEavesdropping, setIsEavesd
                             </div>
                         </div>
 
-                        {/* KiwiSDR Tuner — appears when a KiwiSDR node is clicked on the map */}
-                        {selectedEntity?.type === 'kiwisdr' && selectedEntity.extra?.url && (
-                            <div className="p-3 border-b border-amber-900/40 bg-amber-950/10">
-                                <div className="text-[9px] text-amber-400 font-mono tracking-widest mb-2 flex items-center gap-2">
-                                    <RadioReceiver size={10} />
-                                    SDR TUNER: {(selectedEntity.extra.name || 'REMOTE RECEIVER').toUpperCase().slice(0, 60)}
-                                </div>
-                                <div className="text-[8px] text-[var(--text-muted)] font-mono mb-2">
-                                    {selectedEntity.extra.location && <span>{selectedEntity.extra.location} · </span>}
-                                    {selectedEntity.extra.antenna && <span>{selectedEntity.extra.antenna.slice(0, 80)} · </span>}
-                                    {selectedEntity.extra.users !== undefined && <span>{selectedEntity.extra.users}/{selectedEntity.extra.users_max} users</span>}
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <a
-                                        href={selectedEntity.extra.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex-1 text-center px-4 py-2.5 rounded border border-amber-500/50 bg-amber-950/30 text-amber-400 hover:bg-amber-900/40 hover:border-amber-400 text-[10px] font-mono tracking-widest transition-colors"
-                                    >
-                                        OPEN SDR RECEIVER →
-                                    </a>
-                                </div>
-                                {selectedEntity.extra.bands && (
-                                    <div className="text-[8px] text-[var(--text-muted)] font-mono mt-2">
-                                        BANDS: {(Number(selectedEntity.extra.bands.split('-')[0]) / 1e6).toFixed(0)}-{(Number(selectedEntity.extra.bands.split('-')[1]) / 1e6).toFixed(0)} MHz
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
                         {/* Feed List */}
                         <div className="flex-col overflow-y-auto styled-scrollbar max-h-64 p-2">
                             {feeds.length === 0 ? (
                                 <div className="text-[10px] text-cyan-700 font-mono text-center p-4">SEARCHING FREQUENCIES...</div>
                             ) : (
-                                feeds.map((feed: any, idx: number) => (
+                                feeds.map((feed: RadioFeed, idx: number) => (
                                     <div
                                         key={feed.id}
                                         onClick={() => playFeed(feed)}

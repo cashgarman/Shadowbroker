@@ -1,9 +1,10 @@
 "use client";
 
 import React, { createContext, useContext } from "react";
+import type { DashboardData } from "@/types/dashboard";
 
 interface DashboardDataContextValue {
-    data: any;
+    data: DashboardData;
     selectedEntity: { id: string | number; type: string; extra?: any } | null;
     setSelectedEntity: (entity: { id: string | number; type: string; extra?: any } | null) => void;
 }

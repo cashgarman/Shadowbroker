@@ -3,6 +3,7 @@ import json
 import subprocess
 import shutil
 import time
+import threading
 import requests
 from urllib.parse import urlparse
 from requests.adapters import HTTPAdapter
@@ -29,6 +30,9 @@ _DOMAIN_FAIL_TTL = 300  # 5 minutes
 # If a domain failed completely within the last 2 minutes, skip it entirely
 _circuit_breaker: dict[str, float] = {}
 _CIRCUIT_BREAKER_TTL = 120  # 2 minutes
+
+# Lock protecting _domain_fail_cache and _circuit_breaker mutations
+_cb_lock = threading.Lock()
 
 class _DummyResponse:
     """Minimal response object matching requests.Response interface."""
@@ -61,13 +65,14 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
     domain = urlparse(url).netloc
 
     # Circuit breaker: if domain failed completely <2min ago, fail fast
-    if domain in _circuit_breaker and (time.time() - _circuit_breaker[domain]) < _CIRCUIT_BREAKER_TTL:
-        raise Exception(f"Circuit breaker open for {domain} (failed <{_CIRCUIT_BREAKER_TTL}s ago)")
+    with _cb_lock:
+        if domain in _circuit_breaker and (time.time() - _circuit_breaker[domain]) < _CIRCUIT_BREAKER_TTL:
+            raise Exception(f"Circuit breaker open for {domain} (failed <{_CIRCUIT_BREAKER_TTL}s ago)")
 
     # Check if this domain recently failed with requests — skip straight to curl
-    if domain in _domain_fail_cache and (time.time() - _domain_fail_cache[domain]) < _DOMAIN_FAIL_TTL:
-        pass  # Fall through to curl below
-    else:
+    with _cb_lock:
+        _skip_requests = domain in _domain_fail_cache and (time.time() - _domain_fail_cache[domain]) < _DOMAIN_FAIL_TTL
+    if not _skip_requests:
         try:
             # Use a short connect timeout (3s) so firewall blocks fail fast,
             # but allow the full timeout for reading the response body.
@@ -78,42 +83,47 @@ def fetch_with_curl(url, method="GET", json_data=None, timeout=15, headers=None)
                 res = _session.get(url, timeout=req_timeout, headers=default_headers)
             res.raise_for_status()
             # Clear failure caches on success
-            _domain_fail_cache.pop(domain, None)
-            _circuit_breaker.pop(domain, None)
+            with _cb_lock:
+                _domain_fail_cache.pop(domain, None)
+                _circuit_breaker.pop(domain, None)
             return res
         except (requests.RequestException, ConnectionError, TimeoutError, OSError) as e:
             logger.warning(f"Python requests failed for {url} ({e}), falling back to bash curl...")
-            _domain_fail_cache[domain] = time.time()
+            with _cb_lock:
+                _domain_fail_cache[domain] = time.time()
 
-        # Build curl as argument list — never pass through shell to prevent injection
-        _CURL_PATH = shutil.which("curl") or "curl"
-        cmd = [_CURL_PATH, "-s", "-w", "\n%{http_code}"]
-        for k, v in default_headers.items():
-            cmd += ["-H", f"{k}: {v}"]
-        if method == "POST" and json_data:
-            cmd += ["-X", "POST", "-H", "Content-Type: application/json",
-                    "--data-binary", "@-"]
-        cmd.append(url)
+    # Curl fallback — reached from both _skip_requests and requests-exception paths
+    _CURL_PATH = shutil.which("curl") or "curl"
+    cmd = [_CURL_PATH, "-s", "-w", "\n%{http_code}"]
+    for k, v in default_headers.items():
+        cmd += ["-H", f"{k}: {v}"]
+    if method == "POST" and json_data:
+        cmd += ["-X", "POST", "-H", "Content-Type: application/json",
+                "--data-binary", "@-"]
+    cmd.append(url)
 
-        try:
-            stdin_data = json.dumps(json_data) if (method == "POST" and json_data) else None
-            res = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout + 5,
-                input=stdin_data
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                # Parse HTTP status code from -w output (last line)
-                lines = res.stdout.rstrip().rsplit("\n", 1)
-                body = lines[0] if len(lines) > 1 else res.stdout
-                http_code = int(lines[-1]) if len(lines) > 1 and lines[-1].strip().isdigit() else 200
-                if http_code < 400:
+    try:
+        stdin_data = json.dumps(json_data) if (method == "POST" and json_data) else None
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout + 5,
+            input=stdin_data
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            # Parse HTTP status code from -w output (last line)
+            lines = res.stdout.rstrip().rsplit("\n", 1)
+            body = lines[0] if len(lines) > 1 else res.stdout
+            http_code = int(lines[-1]) if len(lines) > 1 and lines[-1].strip().isdigit() else 200
+            if http_code < 400:
+                with _cb_lock:
                     _circuit_breaker.pop(domain, None)  # Clear circuit breaker on success
-                return _DummyResponse(http_code, body)
-            else:
-                logger.error(f"bash curl fallback failed: exit={res.returncode} stderr={res.stderr[:200]}")
+            return _DummyResponse(http_code, body)
+        else:
+            logger.error(f"bash curl fallback failed: exit={res.returncode} stderr={res.stderr[:200]}")
+            with _cb_lock:
                 _circuit_breaker[domain] = time.time()
-                return _DummyResponse(500, "")
-        except (subprocess.SubprocessError, ConnectionError, TimeoutError, OSError) as curl_e:
-            logger.error(f"bash curl fallback exception: {curl_e}")
-            _circuit_breaker[domain] = time.time()
             return _DummyResponse(500, "")
+    except (subprocess.SubprocessError, ConnectionError, TimeoutError, OSError) as curl_e:
+        logger.error(f"bash curl fallback exception: {curl_e}")
+        with _cb_lock:
+            _circuit_breaker[domain] = time.time()
+        return _DummyResponse(500, "")

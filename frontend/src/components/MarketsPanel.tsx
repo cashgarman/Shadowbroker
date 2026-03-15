@@ -2,9 +2,10 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, Droplet, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Droplet, ChevronDown, ChevronUp, Globe } from 'lucide-react';
+import type { DashboardData } from "@/types/dashboard";
 
-const MarketsPanel = React.memo(function MarketsPanel({ data }: { data: any }) {
+const MarketsPanel = React.memo(function MarketsPanel({ data }: { data: DashboardData }) {
     const [isMinimized, setIsMinimized] = useState(true);
 
     const stocks = data?.stocks || {};
@@ -22,7 +23,10 @@ const MarketsPanel = React.memo(function MarketsPanel({ data }: { data: any }) {
                 className="flex justify-between items-center p-3 cursor-pointer hover:bg-[var(--bg-secondary)]/50 transition-colors border-b border-[var(--border-primary)]/50"
                 onClick={() => setIsMinimized(!isMinimized)}
             >
-                <span className="text-[10px] text-[var(--text-muted)] font-mono tracking-widest">GLOBAL MARKETS</span>
+                <div className="flex items-center gap-2">
+                    <Globe size={12} className="text-cyan-500" />
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono tracking-widest">GLOBAL MARKETS</span>
+                </div>
                 <button className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                     {isMinimized ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 </button>

@@ -1,8 +1,10 @@
 import os
+import time
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_start_time = time.time()
 
 # ---------------------------------------------------------------------------
 # Docker Swarm Secrets support
@@ -16,6 +18,7 @@ _SECRET_VARS = [
     "OPENSKY_CLIENT_SECRET",
     "LTA_ACCOUNT_KEY",
     "CORS_ORIGINS",
+    "ADMIN_KEY",
 ]
 
 for _var in _SECRET_VARS:
@@ -35,7 +38,7 @@ for _var in _SECRET_VARS:
         except Exception as _e:
             logger.error(f"Failed to read secret file {_file_path} for {_var}: {_e}")
 
-from fastapi import FastAPI, Request, Response, Query
+from fastapi import FastAPI, Request, Response, Query, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from services.data_fetcher import start_scheduler, stop_scheduler, get_latest_data, source_timestamps
@@ -44,12 +47,31 @@ from services.carrier_tracker import start_carrier_tracker, stop_carrier_tracker
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from services.schemas import HealthResponse, RefreshResponse
 import uvicorn
 import hashlib
 import json as json_mod
 import socket
+import threading
 
 limiter = Limiter(key_func=get_remote_address)
+
+# ---------------------------------------------------------------------------
+# Admin authentication — protects settings & system endpoints
+# Set ADMIN_KEY in .env or Docker secrets. If unset, endpoints remain open
+# for local-dev convenience but will log a startup warning.
+# ---------------------------------------------------------------------------
+_ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+if not _ADMIN_KEY:
+    logger.warning("ADMIN_KEY is not set — sensitive endpoints are UNPROTECTED. "
+                   "Set ADMIN_KEY in .env or Docker secrets for production.")
+
+def require_admin(request: Request):
+    """FastAPI dependency that rejects requests without a valid X-Admin-Key header."""
+    if not _ADMIN_KEY:
+        return  # No key configured — allow all (local dev)
+    if request.headers.get("X-Admin-Key") != _ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden — invalid or missing admin key")
 
 
 def _build_cors_origins():
@@ -79,7 +101,9 @@ def _build_cors_origins():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import threading
+    # Validate environment variables before starting anything
+    from services.env_check import validate_env
+    validate_env(strict=True)
 
     # Start AIS stream first — it loads the disk cache (instant ships) then
     # begins accumulating live vessel data via WebSocket in the background.
@@ -127,28 +151,67 @@ app.add_middleware(
 
 from services.data_fetcher import update_all_data
 
-_refresh_in_progress = False
+_refresh_lock = threading.Lock()
 
-@app.get("/api/refresh")
+@app.get("/api/refresh", response_model=RefreshResponse)
 @limiter.limit("2/minute")
 async def force_refresh(request: Request):
-    global _refresh_in_progress
-    if _refresh_in_progress:
+    if not _refresh_lock.acquire(blocking=False):
         return {"status": "refresh already in progress"}
-    import threading
     def _do_refresh():
-        global _refresh_in_progress
         try:
             update_all_data()
         finally:
-            _refresh_in_progress = False
-    _refresh_in_progress = True
+            _refresh_lock.release()
     t = threading.Thread(target=_do_refresh)
     t.start()
     return {"status": "refreshing in background"}
 
+@app.post("/api/ais/feed")
+@limiter.limit("60/minute")
+async def ais_feed(request: Request):
+    """Accept AIS-catcher HTTP JSON feed (POST decoded AIS messages)."""
+    from services.ais_stream import ingest_ais_catcher
+    try:
+        body = await request.json()
+    except Exception:
+        return Response(content='{"error":"invalid JSON"}', status_code=400, media_type="application/json")
+
+    msgs = body.get("msgs", [])
+    if not msgs:
+        return {"status": "ok", "ingested": 0}
+
+    count = ingest_ais_catcher(msgs)
+    return {"status": "ok", "ingested": count}
+
+from pydantic import BaseModel
+class ViewportUpdate(BaseModel):
+    s: float
+    w: float
+    n: float
+    e: float
+
+@app.post("/api/viewport")
+@limiter.limit("60/minute")
+async def update_viewport(vp: ViewportUpdate, request: Request):
+    """Receive frontend map bounds to dynamically choke the AIS stream."""
+    from services.ais_stream import update_ais_bbox
+    # Add a gentle 10% padding so ships don't pop-in right at the edge
+    pad_lat = (vp.n - vp.s) * 0.1
+    # handle antimeridian bounding box padding later if needed, simple for now:
+    pad_lng = (vp.e - vp.w) * 0.1 if vp.e > vp.w else 0 
+    
+    update_ais_bbox(
+        south=max(-90, vp.s - pad_lat),
+        west=max(-180, vp.w - pad_lng) if pad_lng else vp.w,
+        north=min(90, vp.n + pad_lat),
+        east=min(180, vp.e + pad_lng) if pad_lng else vp.e
+    )
+    return {"status": "ok"}
+
 @app.get("/api/live-data")
-async def live_data():
+@limiter.limit("120/minute")
+async def live_data(request: Request):
     return get_latest_data()
 
 def _etag_response(request: Request, payload: dict, prefix: str = "", default=None):
@@ -160,59 +223,102 @@ def _etag_response(request: Request, payload: dict, prefix: str = "", default=No
     return Response(content=content, media_type="application/json",
                     headers={"ETag": etag, "Cache-Control": "no-cache"})
 
+def _bbox_filter(items: list, s: float, w: float, n: float, e: float,
+                 lat_key: str = "lat", lng_key: str = "lng") -> list:
+    """Filter a list of dicts to those within the bounding box (with 20% padding).
+    Handles antimeridian crossing (e.g. w=170, e=-170)."""
+    pad_lat = (n - s) * 0.2
+    pad_lng = (e - w) * 0.2 if e > w else ((e + 360 - w) * 0.2)
+    s2, n2 = s - pad_lat, n + pad_lat
+    w2, e2 = w - pad_lng, e + pad_lng
+    crosses_antimeridian = w2 > e2
+    out = []
+    for item in items:
+        lat = item.get(lat_key)
+        lng = item.get(lng_key)
+        if lat is None or lng is None:
+            out.append(item)  # Keep items without coords (don't filter them out)
+            continue
+        if not (s2 <= lat <= n2):
+            continue
+        if crosses_antimeridian:
+            if lng >= w2 or lng <= e2:
+                out.append(item)
+        else:
+            if w2 <= lng <= e2:
+                out.append(item)
+    return out
+
 @app.get("/api/live-data/fast")
 @limiter.limit("120/minute")
-async def live_data_fast(request: Request):
+async def live_data_fast(request: Request,
+                         s: float = Query(None, description="South bound"),
+                         w: float = Query(None, description="West bound"),
+                         n: float = Query(None, description="North bound"),
+                         e: float = Query(None, description="East bound")):
     d = get_latest_data()
+    has_bbox = all(v is not None for v in (s, w, n, e))
+    def _f(items, lat_key="lat", lng_key="lng"):
+        return _bbox_filter(items, s, w, n, e, lat_key, lng_key) if has_bbox else items
     payload = {
-        "commercial_flights": d.get("commercial_flights", []),
-        "military_flights": d.get("military_flights", []),
-        "private_flights": d.get("private_flights", []),
-        "private_jets": d.get("private_jets", []),
-        "tracked_flights": d.get("tracked_flights", []),
-        "ships": d.get("ships", []),
-        "cctv": d.get("cctv", []),
-        "uavs": d.get("uavs", []),
-        "liveuamap": d.get("liveuamap", []),
-        "gps_jamming": d.get("gps_jamming", []),
-        "satellites": d.get("satellites", []),
+        "commercial_flights": _f(d.get("commercial_flights", [])),
+        "military_flights": _f(d.get("military_flights", [])),
+        "private_flights": _f(d.get("private_flights", [])),
+        "private_jets": _f(d.get("private_jets", [])),
+        "tracked_flights": d.get("tracked_flights", []),  # Always send tracked (small set)
+        "ships": _f(d.get("ships", [])),
+        "cctv": _f(d.get("cctv", []), lat_key="lat", lng_key="lon"),
+        "uavs": _f(d.get("uavs", [])),
+        "liveuamap": _f(d.get("liveuamap", [])),
+        "gps_jamming": _f(d.get("gps_jamming", [])),
+        "satellites": _f(d.get("satellites", [])),
         "satellite_source": d.get("satellite_source", "none"),
         "freshness": dict(source_timestamps),
     }
-    return _etag_response(request, payload, prefix="fast|")
+    bbox_tag = f"{s},{w},{n},{e}" if has_bbox else "full"
+    return _etag_response(request, payload, prefix=f"fast|{bbox_tag}|")
 
 @app.get("/api/live-data/slow")
 @limiter.limit("60/minute")
-async def live_data_slow(request: Request):
+async def live_data_slow(request: Request,
+                         s: float = Query(None, description="South bound"),
+                         w: float = Query(None, description="West bound"),
+                         n: float = Query(None, description="North bound"),
+                         e: float = Query(None, description="East bound")):
     d = get_latest_data()
+    has_bbox = all(v is not None for v in (s, w, n, e))
+    def _f(items, lat_key="lat", lng_key="lng"):
+        return _bbox_filter(items, s, w, n, e, lat_key, lng_key) if has_bbox else items
     payload = {
         "last_updated": d.get("last_updated"),
-        "news": d.get("news", []),
+        "news": d.get("news", []),  # News has coords but we always send it (small set, important)
         "stocks": d.get("stocks", {}),
         "oil": d.get("oil", {}),
         "weather": d.get("weather"),
         "traffic": d.get("traffic", []),
-        "earthquakes": d.get("earthquakes", []),
-        "frontlines": d.get("frontlines"),
-        "gdelt": d.get("gdelt", []),
-        "airports": d.get("airports", []),
-        "satellites": d.get("satellites", []),
-        "kiwisdr": d.get("kiwisdr", []),
+        "earthquakes": _f(d.get("earthquakes", [])),
+        "frontlines": d.get("frontlines"),  # Always send (GeoJSON polygon, not point-filterable)
+        "gdelt": d.get("gdelt", []),  # GeoJSON features — filtered client-side
+        "airports": d.get("airports", []),  # Always send (reference data)
+        "kiwisdr": _f(d.get("kiwisdr", []), lat_key="lat", lng_key="lon"),
         "space_weather": d.get("space_weather"),
-        "internet_outages": d.get("internet_outages", []),
-        "firms_fires": d.get("firms_fires", []),
-        "datacenters": d.get("datacenters", []),
+        "internet_outages": _f(d.get("internet_outages", [])),
+        "firms_fires": _f(d.get("firms_fires", [])),
+        "datacenters": _f(d.get("datacenters", [])),
         "freshness": dict(source_timestamps),
     }
-    return _etag_response(request, payload, prefix="slow|", default=str)
+    bbox_tag = f"{s},{w},{n},{e}" if has_bbox else "full"
+    return _etag_response(request, payload, prefix=f"slow|{bbox_tag}|", default=str)
 
 @app.get("/api/debug-latest")
-async def debug_latest_data():
+@limiter.limit("30/minute")
+async def debug_latest_data(request: Request):
     return list(get_latest_data().keys())
 
 
-@app.get("/api/health")
-async def health_check():
+@app.get("/api/health", response_model=HealthResponse)
+@limiter.limit("30/minute")
+async def health_check(request: Request):
     import time
     d = get_latest_data()
     last = d.get("last_updated")
@@ -236,24 +342,29 @@ async def health_check():
         "uptime_seconds": round(time.time() - _start_time),
     }
 
-_start_time = __import__("time").time()
+
 
 from services.radio_intercept import get_top_broadcastify_feeds, get_openmhz_systems, get_recent_openmhz_calls, find_nearest_openmhz_system
 
 @app.get("/api/radio/top")
-async def get_top_radios():
+@limiter.limit("30/minute")
+async def get_top_radios(request: Request):
     return get_top_broadcastify_feeds()
 
 @app.get("/api/radio/openmhz/systems")
-async def api_get_openmhz_systems():
+@limiter.limit("30/minute")
+async def api_get_openmhz_systems(request: Request):
     return get_openmhz_systems()
 
 @app.get("/api/radio/openmhz/calls/{sys_name}")
-async def api_get_openmhz_calls(sys_name: str):
+@limiter.limit("60/minute")
+async def api_get_openmhz_calls(request: Request, sys_name: str):
     return get_recent_openmhz_calls(sys_name)
 
 @app.get("/api/radio/nearest")
+@limiter.limit("60/minute")
 async def api_get_nearest_radio(
+    request: Request,
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
 ):
@@ -262,7 +373,9 @@ async def api_get_nearest_radio(
 from services.radio_intercept import find_nearest_openmhz_systems_list
 
 @app.get("/api/radio/nearest-list")
+@limiter.limit("60/minute")
 async def api_get_nearest_radios_list(
+    request: Request,
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
     limit: int = Query(5, ge=1, le=20),
@@ -272,7 +385,8 @@ async def api_get_nearest_radios_list(
 from services.network_utils import fetch_with_curl
 
 @app.get("/api/route/{callsign}")
-async def get_flight_route(callsign: str, lat: float = 0.0, lng: float = 0.0):
+@limiter.limit("60/minute")
+async def get_flight_route(request: Request, callsign: str, lat: float = 0.0, lng: float = 0.0):
     r = fetch_with_curl("https://api.adsb.lol/api/0/routeset", method="POST", json_data={"planes": [{"callsign": callsign, "lat": lat, "lng": lng}]}, timeout=10)
     if r and r.status_code == 200:
         data = r.json()
@@ -330,12 +444,14 @@ class ApiKeyUpdate(BaseModel):
     env_key: str
     value: str
 
-@app.get("/api/settings/api-keys")
-async def api_get_keys():
+@app.get("/api/settings/api-keys", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def api_get_keys(request: Request):
     return get_api_keys()
 
-@app.put("/api/settings/api-keys")
-async def api_update_key(body: ApiKeyUpdate):
+@app.put("/api/settings/api-keys", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
+async def api_update_key(request: Request, body: ApiKeyUpdate):
     ok = update_api_key(body.env_key, body.value)
     if ok:
         return {"status": "updated", "env_key": body.env_key}
@@ -347,10 +463,12 @@ async def api_update_key(body: ApiKeyUpdate):
 from services.news_feed_config import get_feeds, save_feeds, reset_feeds
 
 @app.get("/api/settings/news-feeds")
-async def api_get_news_feeds():
+@limiter.limit("30/minute")
+async def api_get_news_feeds(request: Request):
     return get_feeds()
 
-@app.put("/api/settings/news-feeds")
+@app.put("/api/settings/news-feeds", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
 async def api_save_news_feeds(request: Request):
     body = await request.json()
     ok = save_feeds(body)
@@ -362,8 +480,9 @@ async def api_save_news_feeds(request: Request):
         media_type="application/json",
     )
 
-@app.post("/api/settings/news-feeds/reset")
-async def api_reset_news_feeds():
+@app.post("/api/settings/news-feeds/reset", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
+async def api_reset_news_feeds(request: Request):
     ok = reset_feeds()
     if ok:
         return {"status": "reset", "feeds": get_feeds()}
@@ -375,11 +494,18 @@ async def api_reset_news_feeds():
 from pathlib import Path
 from services.updater import perform_update, schedule_restart
 
-@app.post("/api/system/update")
+@app.post("/api/system/update", dependencies=[Depends(require_admin)])
 @limiter.limit("1/minute")
 async def system_update(request: Request):
     """Download latest release, backup current files, extract update, and restart."""
-    project_root = str(Path(__file__).resolve().parent.parent)
+    # In Docker, __file__ is /app/main.py so .parent.parent resolves to /
+    # which causes PermissionError. Use cwd as fallback when parent.parent
+    # doesn't contain frontend/ or backend/ (i.e. we're already at project root).
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "frontend").is_dir() or (candidate / "backend").is_dir():
+        project_root = str(candidate)
+    else:
+        project_root = os.getcwd()
     result = perform_update(project_root)
     if result.get("status") == "error":
         return Response(
@@ -388,7 +514,6 @@ async def system_update(request: Request):
             media_type="application/json",
         )
     # Schedule restart AFTER response flushes (2s delay)
-    import threading
     threading.Timer(2.0, schedule_restart, args=[project_root]).start()
     return result
 

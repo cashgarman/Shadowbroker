@@ -52,6 +52,17 @@ type Tab = "api-keys" | "news-feeds";
 const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
     const [activeTab, setActiveTab] = useState<Tab>("api-keys");
 
+    // --- Admin Key (for protected endpoints) ---
+    const [adminKey, setAdminKey] = useState(() => {
+        if (typeof window !== 'undefined') return localStorage.getItem('sb_admin_key') || '';
+        return '';
+    });
+    const adminHeaders = (extra?: Record<string, string>): Record<string, string> => {
+        const h: Record<string, string> = { ...extra };
+        if (adminKey) h['X-Admin-Key'] = adminKey;
+        return h;
+    };
+
     // --- API Keys state ---
     const [apis, setApis] = useState<ApiEntry[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,7 +78,9 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
 
     const fetchKeys = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/settings/api-keys`);
+            const res = await fetch(`${API_BASE}/api/settings/api-keys`, {
+                headers: adminHeaders(),
+            });
             if (res.ok) setApis(await res.json());
         } catch (e) {
             console.error("Failed to fetch API keys", e);
@@ -102,7 +115,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
         try {
             const res = await fetch(`${API_BASE}/api/settings/api-keys`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: adminHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ env_key: api.env_key, value: editValue }),
             });
             if (res.ok) { setEditingId(null); fetchKeys(); }
@@ -151,7 +164,7 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
         try {
             const res = await fetch(`${API_BASE}/api/settings/news-feeds`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: adminHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify(feeds),
             });
             if (res.ok) {
@@ -168,7 +181,10 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
 
     const resetFeeds = async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/settings/news-feeds/reset`, { method: "POST" });
+            const res = await fetch(`${API_BASE}/api/settings/news-feeds/reset`, {
+                method: "POST",
+                headers: adminHeaders(),
+            });
             if (res.ok) {
                 const d = await res.json();
                 setFeeds(d.feeds || []);
@@ -220,7 +236,23 @@ const SettingsPanel = React.memo(function SettingsPanel({ isOpen, onClose }: { i
                             </button>
                         </div>
 
-                        {/* Tab Bar */}
+                        {/* Admin Key Bar */}
+                        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-primary)]/40 bg-[var(--bg-primary)]/30">
+                            <Shield size={12} className={adminKey ? "text-green-400" : "text-yellow-500"} />
+                            <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] whitespace-nowrap">ADMIN KEY</span>
+                            <input
+                                type="password"
+                                value={adminKey}
+                                onChange={(e) => {
+                                    setAdminKey(e.target.value);
+                                    localStorage.setItem('sb_admin_key', e.target.value);
+                                }}
+                                placeholder="Enter admin key for protected operations..."
+                                className="flex-1 bg-[var(--bg-primary)]/60 border border-[var(--border-primary)] rounded px-2 py-1 text-[10px] font-mono text-[var(--text-secondary)] outline-none focus:border-cyan-700 placeholder:text-[var(--text-muted)]/50"
+                            />
+                            {adminKey && <span className="text-[8px] font-mono text-green-400/70 tracking-widest">SET</span>}
+                        </div>
+
                         <div className="flex border-b border-[var(--border-primary)]/60">
                             <button
                                 onClick={() => setActiveTab("api-keys")}

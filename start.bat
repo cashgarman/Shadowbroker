@@ -1,6 +1,10 @@
 @echo off
 title ShadowBroker - Global Threat Intercept
 
+:: Kill any processes on ports 3000 and 8000 first (before anything else)
+powershell -NoProfile -Command "$ports = 3000,8000; foreach ($port in $ports) { $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; foreach ($p in ($conns | Select-Object -ExpandProperty OwningProcess -Unique)) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } }" 2>nul
+timeout /t 2 /nobreak >nul
+
 echo ===================================================
 echo     S H A D O W B R O K E R   --   STARTUP
 echo ===================================================
@@ -85,9 +89,14 @@ if not exist "node_modules\" (
 echo [*] Frontend dependencies OK.
 
 echo.
+echo [*] Ensuring ports 3000 and 8000 are free...
+powershell -NoProfile -Command "$ports = 3000,8000; foreach ($port in $ports) { $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; foreach ($p in ($conns | Select-Object -ExpandProperty OwningProcess -Unique)) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Write-Host '[*] Killed process on port' $port '(PID' $p ')' } }"
+timeout /t 2 /nobreak >nul
+
+echo.
 echo ===================================================
 echo   Starting services...
-echo   Dashboard: http://localhost:3000
+echo   Dashboard: http://localhost:3000 (LAN: use your machine's IP)
 echo   Keep this window open! Initial load takes ~10s.
 echo ===================================================
 echo   (Press Ctrl+C to stop)

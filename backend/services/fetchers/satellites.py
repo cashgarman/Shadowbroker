@@ -11,6 +11,7 @@ import time
 import json
 import re
 import logging
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from sgp4.api import Satrec, WGS72, jday
@@ -53,7 +54,7 @@ def _load_sat_cache():
                     return data
             else:
                 logger.info(f"Satellites: Disk cache is {age_hours:.0f}h old, will try fresh fetch")
-    except Exception as e:
+    except (IOError, OSError, json.JSONDecodeError, ValueError, KeyError) as e:
         logger.warning(f"Satellites: Failed to load disk cache: {e}")
     return None
 
@@ -65,7 +66,7 @@ def _save_sat_cache(data):
             json.dump(data, f)
         _save_cache_meta()
         logger.info(f"Satellites: Saved {len(data)} records to disk cache")
-    except Exception as e:
+    except (IOError, OSError) as e:
         logger.warning(f"Satellites: Failed to save disk cache: {e}")
 
 def _load_cache_meta():
@@ -75,7 +76,7 @@ def _load_cache_meta():
             with open(_SAT_CACHE_META_PATH, "r") as f:
                 meta = json.load(f)
             _sat_gp_cache["last_modified"] = meta.get("last_modified")
-    except Exception:
+    except (IOError, OSError, json.JSONDecodeError, ValueError, KeyError):
         pass
 
 def _save_cache_meta():
@@ -83,7 +84,7 @@ def _save_cache_meta():
     try:
         with open(_SAT_CACHE_META_PATH, "w") as f:
             json.dump({"last_modified": _sat_gp_cache.get("last_modified")}, f)
-    except Exception:
+    except (IOError, OSError):
         pass
 
 
@@ -163,7 +164,7 @@ def _parse_tle_to_gp(name, norad_id, line1, line2):
             "BSTAR": bstar,
             "EPOCH": epoch_dt.strftime("%Y-%m-%dT%H:%M:%S"),
         }
-    except Exception:
+    except (ValueError, TypeError, IndexError, KeyError):
         return None
 
 
@@ -196,7 +197,7 @@ def _fetch_satellites_from_tle_api():
                         seen_ids.add(sat_id)
                         all_results.append(gp)
             time.sleep(1)  # Polite delay between requests
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
             logger.debug(f"TLE fallback search '{term}' failed: {e}")
 
     return all_results
@@ -238,7 +239,7 @@ def fetch_satellites():
                             _save_sat_cache(gp_data)
                             logger.info(f"Satellites: Downloaded {len(gp_data)} GP records from CelesTrak")
                             break
-                except Exception as e:
+                except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
                     logger.warning(f"Satellites: Failed to fetch from {url}: {e}")
                     continue
 
@@ -252,7 +253,7 @@ def fetch_satellites():
                         _sat_gp_cache["source"] = "tle_api"
                         _save_sat_cache(fallback_data)
                         logger.info(f"Satellites: Got {len(fallback_data)} records from TLE fallback API")
-                except Exception as e:
+                except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
                     logger.error(f"Satellites: TLE fallback also failed: {e}")
 
             if _sat_gp_cache["data"] is None:
@@ -375,11 +376,11 @@ def fetch_satellites():
                           'BSTAR', 'EPOCH', 'tle1', 'tle2'):
                     s.pop(k, None)
                 sats.append(s)
-            except Exception:
+            except (ValueError, TypeError, KeyError, AttributeError, ZeroDivisionError):
                 continue
 
         logger.info(f"Satellites: {len(classified)} classified, {len(sats)} positioned")
-    except Exception as e:
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
         logger.error(f"Error fetching satellites: {e}")
     if sats:
         with _data_lock:

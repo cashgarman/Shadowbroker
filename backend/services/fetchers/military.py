@@ -1,5 +1,7 @@
 """Military flight tracking and UAV detection from ADS-B data."""
+import json
 import logging
+import requests
 from services.network_utils import fetch_with_curl
 from services.fetchers._store import latest_data, _data_lock, _mark_fresh
 from services.fetchers.plane_alert import enrich_with_plane_alert

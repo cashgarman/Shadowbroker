@@ -9,7 +9,7 @@ import { interpolatePosition } from "@/utils/positioning";
 import { darkStyle, lightStyle } from "@/components/map/styles/mapStyles";
 import ScaleBar from "@/components/ScaleBar";
 import maplibregl from "maplibre-gl";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Radio, Globe, Activity, Play } from "lucide-react";
 import WikiImage from "@/components/WikiImage";
 import { useTheme } from "@/lib/ThemeContext";
 
@@ -20,7 +20,7 @@ import {
     svgPlaneWhiteAlert, svgHeliPink, svgHeliAlertRed, svgHeliDarkBlue,
     svgHeliBlue, svgHeliLime, svgHeliWhiteAlert, svgPlaneBlack, svgHeliBlack,
     svgDrone, svgDataCenter, svgRadioTower, svgShipGray, svgShipRed, svgShipYellow,
-    svgShipBlue, svgShipWhite, svgCarrier, svgCctv, svgWarning, svgThreat,
+    svgShipBlue, svgShipWhite, svgShipPink, svgCarrier, svgCctv, svgWarning, svgThreat,
     svgTriangleYellow, svgTriangleRed,
     svgFireYellow, svgFireOrange, svgFireRed, svgFireDarkRed,
     svgFireClusterSmall, svgFireClusterMed, svgFireClusterLarge, svgFireClusterXL,
@@ -42,9 +42,22 @@ import { classifyAircraft } from "@/utils/aircraftClassification";
 import { makeSatSvg, MISSION_COLORS, MISSION_ICON_MAP } from "@/components/map/icons/SatelliteIcons";
 import { EMPTY_FC } from "@/components/map/mapConstants";
 import { useImperativeSource } from "@/components/map/hooks/useImperativeSource";
-import { ClusterCountLabels, TrackedFlightLabels, CarrierLabels, UavLabels, EarthquakeLabels, ThreatMarkers } from "@/components/map/MapMarkers";
+import { ClusterCountLabels, TrackedFlightLabels, CarrierLabels, TrackedYachtLabels, UavLabels, EarthquakeLabels, ThreatMarkers } from "@/components/map/MapMarkers";
+import type { MaplibreViewerProps } from "@/types/dashboard";
+import { INTERP_TICK_MS, ALERT_BOX_WIDTH_PX, ALERT_MAX_OFFSET_PX } from "@/lib/constants";
+import { useInterpolation } from "@/components/map/hooks/useInterpolation";
+import { useClusterLabels } from "@/components/map/hooks/useClusterLabels";
+import { spreadAlertItems } from "@/utils/alertSpread";
+import {
+    buildEarthquakesGeoJSON, buildJammingGeoJSON, buildCctvGeoJSON, buildKiwisdrGeoJSON,
+    buildFirmsGeoJSON, buildInternetOutagesGeoJSON, buildDataCentersGeoJSON,
+    buildGdeltGeoJSON, buildLiveuaGeoJSON, buildFrontlineGeoJSON,
+    buildFlightLayerGeoJSON, buildUavGeoJSON,
+    buildSatellitesGeoJSON, buildShipsGeoJSON, buildCarriersGeoJSON,
+    type FlightLayerConfig,
+} from "@/components/map/geoJSONBuilders";
 
-const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, selectedEntity, onMouseCoords, onRightClick, regionDossier, regionDossierLoading, onViewStateChange, measureMode, onMeasureClick, measurePoints, gibsDate, gibsOpacity }: any) => {
+const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, selectedEntity, onMouseCoords, onRightClick, regionDossier, regionDossierLoading, onViewStateChange, measureMode, onMeasureClick, measurePoints, gibsDate, gibsOpacity, viewBoundsRef, setTrackedSdr }: MaplibreViewerProps) => {
     const mapRef = useRef<MapRef>(null);
     const [mapReady, setMapReady] = useState(false);
     const { theme } = useTheme();
@@ -77,7 +90,31 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
             b.getEast() + lngRange * buf,
             b.getNorth() + latRange * buf
         ]);
-    }, []);
+        // Write raw (unpadded) bounds for server-side viewport filtering
+        if (viewBoundsRef && 'current' in viewBoundsRef) {
+            (viewBoundsRef as React.MutableRefObject<any>).current = {
+                south: b.getSouth(),
+                west: b.getWest(),
+                north: b.getNorth(),
+                east: b.getEast(),
+            };
+        }
+        
+        // Debounce POSTing viewport bounds to backend for dynamic AIS stream filtering
+        if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
+        boundsTimerRef.current = setTimeout(() => {
+            fetch(`${API_BASE}/api/viewport`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    s: b.getSouth(),
+                    w: b.getWest(),
+                    n: b.getNorth(),
+                    e: b.getEast()
+                })
+            }).catch(e => console.error("Failed to update backend viewport:", e));
+        }, 1500); // 1.5s debounce after map stops moving
+    }, [viewBoundsRef]);
 
     // Fast bounds check — used by all GeoJSON builders and Marker loops
     const inView = useCallback((lat: number, lng: number) =>
@@ -87,32 +124,22 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
 
     const [dynamicRoute, setDynamicRoute] = useState<any>(null);
     const prevCallsign = useRef<string | null>(null);
-    const [shipClusters, setShipClusters] = useState<any[]>([]);
-    const [eqClusters, setEqClusters] = useState<any[]>([]);
 
     // Global Incidents popup: dismiss state
     // Keys use stable content hash (title+coords) to survive data.news array replacement on refresh
     // NOTE: Using Set (not Map) to avoid collision with the `Map` react-map-gl import
     const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
-    // --- Smooth interpolation: tick counter triggers GeoJSON recalc every second ---
-    const [interpTick, setInterpTick] = useState(0);
-    const dataTimestamp = useRef<number>(Date.now());
+    // --- Smooth interpolation via extracted hook ---
+    const { interpTick, interpFlight, interpShip, interpSat, dtSeconds, dataTimestamp } = useInterpolation();
 
     // Track when flight/ship/satellite data actually changes (new fetch arrived)
     useEffect(() => {
         dataTimestamp.current = Date.now();
     }, [data?.commercial_flights, data?.ships, data?.satellites]);
 
-    // Tick every 1s between data refreshes to animate positions
-    // Satellites move ~7km/s so need frequent updates for smooth motion
-    useEffect(() => {
-        const timer = setInterval(() => setInterpTick(t => t + 1), 1000);
-        return () => clearInterval(timer);
-    }, []);
-
     // --- Solar Terminator: recompute the night polygon every 60 seconds ---
-    const [nightGeoJSON, setNightGeoJSON] = useState<any>(() => computeNightPolygon());
+    const [nightGeoJSON, setNightGeoJSON] = useState<GeoJSON.FeatureCollection>(() => computeNightPolygon());
     useEffect(() => {
         const timer = setInterval(() => setNightGeoJSON(computeNightPolygon()), 60000);
         return () => clearInterval(timer);
@@ -167,184 +194,33 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         }
     }, [flyToLocation]);
 
-    const earthquakesGeoJSON = useMemo(() => {
-        if (!activeLayers.earthquakes || !data?.earthquakes) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.earthquakes.map((eq: any, i: number) => {
-                if (eq.lat == null || eq.lng == null) return null;
-                return {
-                    type: 'Feature',
-                    properties: {
-                        id: i,
-                        type: 'earthquake',
-                        name: `[M${eq.mag}]\n${eq.place || 'Unknown Location'}`,
-                        title: eq.title
-                    },
-                    geometry: { type: 'Point', coordinates: [eq.lng, eq.lat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.earthquakes, data?.earthquakes]);
+    const earthquakesGeoJSON = useMemo(() =>
+        activeLayers.earthquakes ? buildEarthquakesGeoJSON(data?.earthquakes) : null,
+        [activeLayers.earthquakes, data?.earthquakes]);
 
-    // GPS Jamming zones — 1°×1° grid squares colored by severity
-    const jammingGeoJSON = useMemo(() => {
-        if (!activeLayers.gps_jamming || !data?.gps_jamming?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.gps_jamming.map((zone: any, i: number) => {
-                const halfDeg = 0.5;
-                const lat = zone.lat;
-                const lng = zone.lng;
-                return {
-                    type: 'Feature' as const,
-                    properties: {
-                        id: i,
-                        severity: zone.severity,
-                        ratio: zone.ratio,
-                        degraded: zone.degraded,
-                        total: zone.total,
-                        opacity: zone.severity === 'high' ? 0.45 : zone.severity === 'medium' ? 0.3 : 0.18
-                    },
-                    geometry: {
-                        type: 'Polygon' as const,
-                        coordinates: [[
-                            [lng - halfDeg, lat - halfDeg],
-                            [lng + halfDeg, lat - halfDeg],
-                            [lng + halfDeg, lat + halfDeg],
-                            [lng - halfDeg, lat + halfDeg],
-                            [lng - halfDeg, lat - halfDeg]
-                        ]]
-                    }
-                };
-            })
-        };
-    }, [activeLayers.gps_jamming, data?.gps_jamming]);
+    const jammingGeoJSON = useMemo(() =>
+        activeLayers.gps_jamming ? buildJammingGeoJSON(data?.gps_jamming) : null,
+        [activeLayers.gps_jamming, data?.gps_jamming]);
 
-    // CCTV cameras — clustered green dots
-    const cctvGeoJSON = useMemo(() => {
-        if (!activeLayers.cctv || !data?.cctv?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.cctv.filter((c: any) => c.lat != null && c.lon != null && inView(c.lat, c.lon)).map((c: any, i: number) => ({
-                type: 'Feature' as const,
-                properties: {
-                    id: c.id || i,
-                    type: 'cctv',
-                    name: c.direction_facing || 'Camera',
-                    source_agency: c.source_agency || 'Unknown',
-                    media_url: c.media_url || '',
-                    media_type: c.media_type || 'image'
-                },
-                geometry: { type: 'Point' as const, coordinates: [c.lon, c.lat] }
-            }))
-        };
-    }, [activeLayers.cctv, data?.cctv, inView]);
+    const cctvGeoJSON = useMemo(() =>
+        activeLayers.cctv ? buildCctvGeoJSON(data?.cctv, inView) : null,
+        [activeLayers.cctv, data?.cctv, inView]);
 
-    // KiwiSDR receivers — clustered amber dots
-    const kiwisdrGeoJSON = useMemo(() => {
-        if (!activeLayers.kiwisdr || !data?.kiwisdr?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.kiwisdr.filter((k: any) => k.lat != null && k.lon != null && inView(k.lat, k.lon)).map((k: any, i: number) => ({
-                type: 'Feature' as const,
-                properties: {
-                    id: i,
-                    type: 'kiwisdr',
-                    name: k.name || 'Unknown SDR',
-                    url: k.url || '',
-                    users: k.users || 0,
-                    users_max: k.users_max || 0,
-                    bands: k.bands || '',
-                    antenna: k.antenna || '',
-                    location: k.location || '',
-                },
-                geometry: { type: 'Point' as const, coordinates: [k.lon, k.lat] }
-            }))
-        };
-    }, [activeLayers.kiwisdr, data?.kiwisdr, inView]);
+    const kiwisdrGeoJSON = useMemo(() =>
+        activeLayers.kiwisdr ? buildKiwisdrGeoJSON(data?.kiwisdr, inView) : null,
+        [activeLayers.kiwisdr, data?.kiwisdr, inView]);
 
-    // FIRMS fires — heat-colored dots by FRP (Fire Radiative Power)
-    const firmsGeoJSON = useMemo(() => {
-        if (!activeLayers.firms || !data?.firms_fires?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.firms_fires.map((f: any, i: number) => {
-                const frp = f.frp || 0;
-                const iconId = frp >= 100 ? 'fire-darkred' : frp >= 20 ? 'fire-red' : frp >= 5 ? 'fire-orange' : 'fire-yellow';
-                return {
-                    type: 'Feature' as const,
-                    properties: {
-                        id: i,
-                        type: 'firms_fire',
-                        name: `Fire ${frp.toFixed(1)} MW`,
-                        frp,
-                        iconId,
-                        brightness: f.brightness || 0,
-                        confidence: f.confidence || '',
-                        daynight: f.daynight === 'D' ? 'Day' : 'Night',
-                        acq_date: f.acq_date || '',
-                        acq_time: f.acq_time || '',
-                    },
-                    geometry: { type: 'Point' as const, coordinates: [f.lng, f.lat] }
-                };
-            })
-        };
-    }, [activeLayers.firms, data?.firms_fires]);
+    const firmsGeoJSON = useMemo(() =>
+        activeLayers.firms ? buildFirmsGeoJSON(data?.firms_fires) : null,
+        [activeLayers.firms, data?.firms_fires]);
 
-    // Internet outages — region-level with backend-geocoded coordinates
-    const internetOutagesGeoJSON = useMemo(() => {
-        if (!activeLayers.internet_outages || !data?.internet_outages?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.internet_outages.map((o: any) => {
-                const lat = o.lat;
-                const lng = o.lng;
-                if (lat == null || lng == null) return null;
-                const severity = o.severity || 0;
-                const region = o.region_name || o.region_code || '?';
-                const country = o.country_name || o.country_code || '';
-                const label = `${region}, ${country}`;
-                const detail = `${label}\n${severity}% drop · ${o.datasource || 'IODA'}`;
-                return {
-                    type: 'Feature' as const,
-                    properties: {
-                        id: o.region_code || region,
-                        type: 'internet_outage',
-                        name: label,
-                        country,
-                        region,
-                        level: o.level,
-                        severity,
-                        datasource: o.datasource || '',
-                        detail,
-                    },
-                    geometry: { type: 'Point' as const, coordinates: [lng, lat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.internet_outages, data?.internet_outages]);
+    const internetOutagesGeoJSON = useMemo(() =>
+        activeLayers.internet_outages ? buildInternetOutagesGeoJSON(data?.internet_outages) : null,
+        [activeLayers.internet_outages, data?.internet_outages]);
 
-    const dataCentersGeoJSON = useMemo(() => {
-        if (!activeLayers.datacenters || !data?.datacenters?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.datacenters.map((dc: any, i: number) => ({
-                type: 'Feature' as const,
-                properties: {
-                    id: `dc-${i}`,
-                    type: 'datacenter',
-                    name: dc.name || 'Unknown',
-                    company: dc.company || '',
-                    street: dc.street || '',
-                    city: dc.city || '',
-                    country: dc.country || '',
-                    zip: dc.zip || '',
-                },
-                geometry: { type: 'Point' as const, coordinates: [dc.lng, dc.lat] }
-            }))
-        };
-    }, [activeLayers.datacenters, data?.datacenters]);
+    const dataCentersGeoJSON = useMemo(() =>
+        activeLayers.datacenters ? buildDataCentersGeoJSON(data?.datacenters) : null,
+        [activeLayers.datacenters, data?.datacenters]);
 
     // Load Images into the Map Style once loaded
     const onMapLoad = useCallback((e: any) => {
@@ -416,6 +292,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         loadImg('svgShipYellow', svgShipYellow);
         loadImg('svgShipBlue', svgShipBlue);
         loadImg('svgShipWhite', svgShipWhite);
+        loadImg('svgShipPink', svgShipPink);
         loadImg('svgCarrier', svgCarrier);
         loadImg('svgWarning', svgWarning);
         loadImg('icon-threat', svgThreat);
@@ -497,281 +374,64 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         return s;
     }, [data?.tracked_flights]);
 
-    // Elapsed seconds since last data refresh (used for position interpolation)
-    // interpTick dependency forces recalculation every 1s tick
-    const dtSeconds = useMemo(() => {
-        void interpTick; // use the tick to trigger recalc
-        return (Date.now() - dataTimestamp.current) / 1000;
-    }, [interpTick]);
-
-    // Helper: interpolate a flight's position if airborne and has speed+heading
-    const interpFlight = useCallback((f: any): [number, number] => {
-        if (!f.speed_knots || f.speed_knots <= 0 || dtSeconds <= 0) return [f.lng, f.lat];
-        if (f.alt != null && f.alt <= 100) return [f.lng, f.lat];
-        if (dtSeconds < 1) return [f.lng, f.lat];
-        const heading = f.true_track || f.heading || 0;
-        const [newLat, newLng] = interpolatePosition(f.lat, f.lng, heading, f.speed_knots, dtSeconds);
-        return [newLng, newLat];
-    }, [dtSeconds]);
-
-    // Helper: interpolate a ship's position using SOG + heading
-    const interpShip = useCallback((s: any): [number, number] => {
-        if (typeof s.sog !== 'number' || !s.sog || s.sog <= 0 || dtSeconds <= 0) return [s.lng, s.lat];
-        const heading = (typeof s.cog === 'number' ? s.cog : 0) || s.heading || 0;
-        const [newLat, newLng] = interpolatePosition(s.lat, s.lng, heading, s.sog, dtSeconds);
-        return [newLng, newLat];
-    }, [dtSeconds]);
-
-    // Helper: interpolate a satellite's position between API updates
-    const interpSat = useCallback((s: any): [number, number] => {
-        if (!s.speed_knots || s.speed_knots <= 0 || dtSeconds < 1) return [s.lng, s.lat];
-        const [newLat, newLng] = interpolatePosition(s.lat, s.lng, s.heading || 0, s.speed_knots, dtSeconds, 0, 65);
-        return [newLng, newLat];
-    }, [dtSeconds]);
 
     // Satellite GeoJSON with interpolated positions
-    const satellitesGeoJSON = useMemo(() => {
-        if (!activeLayers.satellites || !data?.satellites?.length) return null;
-        return {
-            type: 'FeatureCollection' as const,
-            features: data.satellites.filter((s: any) => s.lat != null && s.lng != null && inView(s.lat, s.lng)).map((s: any, i: number) => ({
-                type: 'Feature' as const,
-                properties: {
-                    id: s.id || i, type: 'satellite', name: s.name, mission: s.mission || 'general',
-                    sat_type: s.sat_type || 'Satellite', country: s.country || '', alt_km: s.alt_km || 0,
-                    wiki: s.wiki || '', color: MISSION_COLORS[s.mission] || '#aaaaaa',
-                    iconId: MISSION_ICON_MAP[s.mission] || 'sat-gen'
-                },
-                geometry: { type: 'Point' as const, coordinates: interpSat(s) }
-            }))
-        };
-    }, [activeLayers.satellites, data?.satellites, dtSeconds, inView]);
+    const satellitesGeoJSON = useMemo(() =>
+        activeLayers.satellites ? buildSatellitesGeoJSON(data?.satellites, inView, interpSat) : null,
+        [activeLayers.satellites, data?.satellites, dtSeconds, inView]);
 
-    const commFlightsGeoJSON = useMemo(() => {
-        if (!activeLayers.flights || !data?.commercial_flights) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.commercial_flights.map((f: any, i: number) => {
-                if (f.lat == null || f.lng == null) return null;
-                if (!inView(f.lat, f.lng)) return null;
-                if (f.icao24 && trackedIcaoSet.has(f.icao24.toLowerCase())) return null;
-                const acType = classifyAircraft(f.model, f.aircraft_category);
-                const grounded = f.alt != null && f.alt <= 100;
-                const [iLng, iLat] = interpFlight(f);
-                return {
-                    type: 'Feature',
-                    properties: { id: f.icao24 || f.callsign || `flight-${i}`, type: 'flight', callsign: f.callsign || f.icao24, rotation: f.true_track || f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_COMMERCIAL[acType] },
-                    geometry: { type: 'Point', coordinates: [iLng, iLat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.flights, data?.commercial_flights, trackedIcaoSet, dtSeconds, inView]);
+    // Flight layer configs — shared across 4 near-identical builders
+    const flightHelpers = useMemo(() => ({ interpFlight, inView, trackedIcaoSet }), [interpFlight, inView, trackedIcaoSet]);
+    const commConfig: FlightLayerConfig = { colorMap: COLOR_MAP_COMMERCIAL, groundedMap: GROUNDED_ICON_MAP, typeLabel: 'flight', idPrefix: 'flight-', useTrackHeading: true };
+    const privConfig: FlightLayerConfig = { colorMap: COLOR_MAP_PRIVATE, groundedMap: GROUNDED_ICON_MAP, typeLabel: 'private_flight', idPrefix: 'pflight-' };
+    const jetsConfig: FlightLayerConfig = { colorMap: COLOR_MAP_JETS, groundedMap: GROUNDED_ICON_MAP, typeLabel: 'private_jet', idPrefix: 'pjet-' };
+    const milConfig: FlightLayerConfig = { colorMap: COLOR_MAP_MILITARY, groundedMap: GROUNDED_ICON_MAP, typeLabel: 'military_flight', idPrefix: 'mflight-', milSpecialMap: MIL_SPECIAL_MAP };
 
-    const privFlightsGeoJSON = useMemo(() => {
-        if (!activeLayers.private || !data?.private_flights) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.private_flights.map((f: any, i: number) => {
-                if (f.lat == null || f.lng == null) return null;
-                if (!inView(f.lat, f.lng)) return null;
-                if (f.icao24 && trackedIcaoSet.has(f.icao24.toLowerCase())) return null;
-                const acType = classifyAircraft(f.model, f.aircraft_category);
-                const grounded = f.alt != null && f.alt <= 100;
-                const [iLng, iLat] = interpFlight(f);
-                return {
-                    type: 'Feature',
-                    properties: { id: f.icao24 || f.callsign || `pflight-${i}`, type: 'private_flight', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_PRIVATE[acType] },
-                    geometry: { type: 'Point', coordinates: [iLng, iLat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.private, data?.private_flights, trackedIcaoSet, dtSeconds, inView]);
+    const commFlightsGeoJSON = useMemo(() =>
+        activeLayers.flights ? buildFlightLayerGeoJSON(data?.commercial_flights, commConfig, flightHelpers) : null,
+        [activeLayers.flights, data?.commercial_flights, flightHelpers]);
 
-    const privJetsGeoJSON = useMemo(() => {
-        if (!activeLayers.jets || !data?.private_jets) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.private_jets.map((f: any, i: number) => {
-                if (f.lat == null || f.lng == null) return null;
-                if (!inView(f.lat, f.lng)) return null;
-                if (f.icao24 && trackedIcaoSet.has(f.icao24.toLowerCase())) return null;
-                const acType = classifyAircraft(f.model, f.aircraft_category);
-                const grounded = f.alt != null && f.alt <= 100;
-                const [iLng, iLat] = interpFlight(f);
-                return {
-                    type: 'Feature',
-                    properties: { id: f.icao24 || f.callsign || `pjet-${i}`, type: 'private_jet', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_JETS[acType] },
-                    geometry: { type: 'Point', coordinates: [iLng, iLat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.jets, data?.private_jets, trackedIcaoSet, dtSeconds, inView]);
+    const privFlightsGeoJSON = useMemo(() =>
+        activeLayers.private ? buildFlightLayerGeoJSON(data?.private_flights, privConfig, flightHelpers) : null,
+        [activeLayers.private, data?.private_flights, flightHelpers]);
 
-    const milFlightsGeoJSON = useMemo(() => {
-        if (!activeLayers.military || !data?.military_flights) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.military_flights.map((f: any, i: number) => {
-                if (f.lat == null || f.lng == null) return null;
-                if (!inView(f.lat, f.lng)) return null;
-                if (f.icao24 && trackedIcaoSet.has(f.icao24.toLowerCase())) return null;
-                const milType = f.military_type || 'default';
-                const grounded = f.alt != null && f.alt <= 100;
-                let iconId = MIL_SPECIAL_MAP[milType];
-                if (!iconId) {
-                    const acType = classifyAircraft(f.model, f.aircraft_category);
-                    iconId = grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_MILITARY[acType];
-                } else if (grounded) {
-                    const acType = classifyAircraft(f.model, f.aircraft_category);
-                    iconId = GROUNDED_ICON_MAP[acType];
-                }
-                const [iLng, iLat] = interpFlight(f);
-                return {
-                    type: 'Feature',
-                    properties: { id: f.icao24 || f.callsign || `mflight-${i}`, type: 'military_flight', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId },
-                    geometry: { type: 'Point', coordinates: [iLng, iLat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.military, data?.military_flights, trackedIcaoSet, dtSeconds, inView]);
+    const privJetsGeoJSON = useMemo(() =>
+        activeLayers.jets ? buildFlightLayerGeoJSON(data?.private_jets, jetsConfig, flightHelpers) : null,
+        [activeLayers.jets, data?.private_jets, flightHelpers]);
 
-    const shipsGeoJSON = useMemo(() => {
-        if (!(activeLayers.ships_military || activeLayers.ships_cargo || activeLayers.ships_civilian || activeLayers.ships_passenger) || !data?.ships) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.ships.map((s: any, i: number) => {
-                if (s.lat == null || s.lng == null) return null;
-                if (!inView(s.lat, s.lng)) return null;
-                const isMilitary = s.type === 'carrier' || s.type === 'military_vessel';
-                const isCargo = s.type === 'tanker' || s.type === 'cargo';
-                const isPassenger = s.type === 'passenger';
-                
-                if (s.type === 'carrier') return null; // Handled by carriersGeoJSON
-                
-                if (isMilitary && activeLayers?.ships_military === false) return null;
-                if (isCargo && activeLayers?.ships_cargo === false) return null;
-                if (isPassenger && activeLayers?.ships_passenger === false) return null;
-                if (!isMilitary && !isCargo && !isPassenger && activeLayers?.ships_civilian === false) return null;
-                
-                let iconId = 'svgShipBlue';
-                if (isCargo) iconId = 'svgShipRed';
-                else if (s.type === 'yacht' || isPassenger) iconId = 'svgShipWhite';
-                else if (isMilitary) iconId = 'svgShipYellow';
-                
-                const [iLng, iLat] = interpShip(s);
-                return {
-                    type: 'Feature',
-                    properties: { id: s.mmsi || s.name || `ship-${i}`, type: 'ship', name: s.name, rotation: s.heading || 0, iconId },
-                    geometry: { type: 'Point', coordinates: [iLng, iLat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.ships_military, activeLayers.ships_cargo, activeLayers.ships_civilian, activeLayers.ships_passenger, data?.ships, inView]);
+    const milFlightsGeoJSON = useMemo(() =>
+        activeLayers.military ? buildFlightLayerGeoJSON(data?.military_flights, milConfig, flightHelpers) : null,
+        [activeLayers.military, data?.military_flights, flightHelpers]);
 
-    // Extract ship cluster positions from the map source for HTML labels
-    const shipClusterHandlerRef = useRef<(() => void) | null>(null);
-    useEffect(() => {
-        const map = mapRef.current?.getMap();
-        if (!map || !shipsGeoJSON) { setShipClusters([]); return; }
+    const shipsGeoJSON = useMemo(() =>
+        buildShipsGeoJSON(data?.ships, activeLayers, inView, interpShip),
+        [activeLayers.ships_military, activeLayers.ships_cargo, activeLayers.ships_civilian, activeLayers.ships_passenger, activeLayers.ships_tracked_yachts, data?.ships, inView]);
 
-        // Remove previous handler if it exists
-        if (shipClusterHandlerRef.current) {
-            map.off('moveend', shipClusterHandlerRef.current);
-            map.off('sourcedata', shipClusterHandlerRef.current);
-        }
+    // Extract cluster label positions via shared hook
+    const shipClusters = useClusterLabels(mapRef, 'ships', shipsGeoJSON);
+    const eqClusters = useClusterLabels(mapRef, 'earthquakes', earthquakesGeoJSON);
 
-        const update = () => {
-            try {
-                const features = map.querySourceFeatures('ships');
-                const clusters = features
-                    .filter((f: any) => f.properties?.cluster)
-                    .map((f: any) => ({
-                        lng: (f.geometry as any).coordinates[0],
-                        lat: (f.geometry as any).coordinates[1],
-                        count: f.properties.point_count_abbreviated || f.properties.point_count,
-                        id: f.properties.cluster_id
-                    }));
-                const seen = new Set();
-                const unique = clusters.filter((c: any) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
-                setShipClusters(unique);
-            } catch { setShipClusters([]); }
-        };
-        shipClusterHandlerRef.current = update;
-
-        map.on('moveend', update);
-        map.on('sourcedata', update);
-        setTimeout(update, 500);
-
-        return () => { map.off('moveend', update); map.off('sourcedata', update); };
-    }, [shipsGeoJSON]);
-
-    // Extract earthquake cluster positions from the map source for HTML labels
-    const eqClusterHandlerRef = useRef<(() => void) | null>(null);
-    useEffect(() => {
-        const map = mapRef.current?.getMap();
-        if (!map || !earthquakesGeoJSON) { setEqClusters([]); return; }
-
-        if (eqClusterHandlerRef.current) {
-            map.off('moveend', eqClusterHandlerRef.current);
-            map.off('sourcedata', eqClusterHandlerRef.current);
-        }
-
-        const update = () => {
-            try {
-                const features = map.querySourceFeatures('earthquakes');
-                const clusters = features
-                    .filter((f: any) => f.properties?.cluster)
-                    .map((f: any) => ({
-                        lng: (f.geometry as any).coordinates[0],
-                        lat: (f.geometry as any).coordinates[1],
-                        count: f.properties.point_count_abbreviated || f.properties.point_count,
-                        id: f.properties.cluster_id
-                    }));
-                const seen = new Set();
-                const unique = clusters.filter((c: any) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
-                setEqClusters(unique);
-            } catch { setEqClusters([]); }
-        };
-        eqClusterHandlerRef.current = update;
-
-        map.on('moveend', update);
-        map.on('sourcedata', update);
-        setTimeout(update, 500);
-
-        return () => { map.off('moveend', update); map.off('sourcedata', update); };
-    }, [earthquakesGeoJSON]);
-
-    const carriersGeoJSON = useMemo(() => {
-        if (!activeLayers.ships_military || !data?.ships) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.ships.map((s: any, i: number) => {
-                if (s.type !== 'carrier' || s.lat == null || s.lng == null) return null;
-                return {
-                    type: 'Feature',
-                    properties: { id: s.mmsi || s.name || `carrier-${i}`, type: 'ship', name: s.name, rotation: s.heading || 0, iconId: 'svgCarrier' },
-                    geometry: { type: 'Point', coordinates: [s.lng, s.lat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.ships_military, data?.ships]);
+    const carriersGeoJSON = useMemo(() =>
+        activeLayers.ships_military ? buildCarriersGeoJSON(data?.ships) : null,
+        [activeLayers.ships_military, data?.ships]);
 
     const activeRouteGeoJSON = useMemo(() => {
         if (!selectedEntity || !data) return null;
 
-        let entity = null;
-        if (selectedEntity.type === 'flight') entity = data?.commercial_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'private_flight') entity = data?.private_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'military_flight') entity = data?.military_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'private_jet') entity = data?.private_jets?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'tracked_flight') entity = data?.tracked_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'ship') entity = data?.ships?.find((s: any) => s.mmsi === selectedEntity.id);
+        // Polymorphic entity lookup — runtime guards ensure correct type access
+        let entity: any = null;
+        if (selectedEntity.type === 'flight') entity = data?.commercial_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'private_flight') entity = data?.private_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'military_flight') entity = data?.military_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'private_jet') entity = data?.private_jets?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'tracked_flight') entity = data?.tracked_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'ship') entity = data?.ships?.find((s) => s.mmsi === selectedEntity.id);
 
         if (!entity) return null;
 
         const currentLoc = [entity.lng, entity.lat];
-        let originLoc = entity.origin_loc; // [lng, lat]
-        let destLoc = entity.dest_loc; // [lng, lat]
+        let originLoc = entity.origin_loc;
+        let destLoc = entity.dest_loc;
 
         if (dynamicRoute && dynamicRoute.orig_loc && dynamicRoute.dest_loc) {
             originLoc = dynamicRoute.orig_loc;
@@ -821,18 +481,17 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
     const trailGeoJSON = useMemo(() => {
         if (!selectedEntity || !data) return null;
 
-        let entity = null;
-        if (selectedEntity.type === 'flight') entity = data?.commercial_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'private_flight') entity = data?.private_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'military_flight') entity = data?.military_flights?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'private_jet') entity = data?.private_jets?.find((f: any) => f.icao24 === selectedEntity.id);
-        else if (selectedEntity.type === 'tracked_flight') entity = data?.tracked_flights?.find((f: any) => f.icao24 === selectedEntity.id);
+        let entity: any = null;
+        if (selectedEntity.type === 'flight') entity = data?.commercial_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'private_flight') entity = data?.private_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'military_flight') entity = data?.military_flights?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'private_jet') entity = data?.private_jets?.find((f) => f.icao24 === selectedEntity.id);
+        else if (selectedEntity.type === 'tracked_flight') entity = data?.tracked_flights?.find((f) => f.icao24 === selectedEntity.id);
 
         if (!entity || !entity.trail || entity.trail.length < 2) return null;
-        // Only show trail if this flight has no known route
         if (entity.origin_name && entity.origin_name !== 'UNKNOWN') return null;
 
-        const coords = entity.trail.map((p: number[]) => [p[1], p[0]]);
+        const coords = entity.trail.map((p: any) => [p[1] ?? p.lng, p[0] ?? p.lat]);
         if (entity.lat != null && entity.lng != null) {
             coords.push([entity.lng, entity.lat]);
         }
@@ -849,114 +508,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
 
     const spreadAlerts = useMemo(() => {
         if (!data?.news) return [];
-
-        // 1. Prepare items with screen-space coordinates (Mercator approx)
-        // We use a relative pixel projection based on zoom to detect visual collisions.
-        const pixelsPerDeg = 256 * Math.pow(2, viewState.zoom) / 360;
-
-        // Use original array mapping to preserve correct indices for the popup/selection logic
-        // Estimate each box's rendered height based on its content.
-        // CSS: padding 5px top/bottom, title maxWidth 160px at 9px font (~18 chars/line),
-        // header "!! ALERT LVL X !!" = 14px, title lines * 13px each, footer 12px if present
-        const estimateBoxH = (n: any) => {
-            const titleLen = (n.title || '').length;
-            const titleLines = Math.max(1, Math.ceil(titleLen / 20)); // ~20 chars per line at 9px in 160px
-            const hasFooter = (n.cluster_count || 1) > 1;
-            return 10 + 14 + (titleLines * 13) + (hasFooter ? 14 : 0) + 10; // padding + header + title + footer + padding
-        };
-
-        let items = data.news
-            .map((n: any, idx: number) => ({ ...n, originalIdx: idx }))
-            .filter((n: any) => n.coords)
-            .map((n: any) => ({
-                ...n,
-                x: n.coords[1] * pixelsPerDeg,
-                y: -n.coords[0] * pixelsPerDeg,
-                offsetX: 0,
-                offsetY: 0,
-                boxH: estimateBoxH(n),
-            }));
-
-        // Box width is consistent (minWidth 120 + padding, titles up to 160px + 16px padding)
-        const BOX_W = 180;
-        const GAP = 6; // Minimum gap between boxes
-        const MAX_OFFSET = 350;
-
-        // 2. Grid-based Collision Resolution (O(n) per iteration instead of O(n²))
-        const CELL_W = BOX_W + GAP;
-        const CELL_H = 100; // Approximate max box height + gap
-        const maxIter = 30;
-        for (let iter = 0; iter < maxIter; iter++) {
-            let moved = false;
-            // Build spatial grid
-            const grid: Record<string, number[]> = {};
-            for (let i = 0; i < items.length; i++) {
-                const cx = Math.floor((items[i].x + items[i].offsetX) / CELL_W);
-                const cy = Math.floor((items[i].y + items[i].offsetY) / CELL_H);
-                const key = `${cx},${cy}`;
-                (grid[key] ??= []).push(i);
-            }
-            // Check collisions only within same/adjacent cells
-            const checked = new Set<string>();
-            for (const key in grid) {
-                const [cx, cy] = key.split(',').map(Number);
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
-                        const nk = `${cx + dx},${cy + dy}`;
-                        if (!grid[nk]) continue;
-                        const pairKey = cx + dx < cx || (cx + dx === cx && cy + dy < cy) ? `${nk}|${key}` : `${key}|${nk}`;
-                        if (key !== nk && checked.has(pairKey)) continue;
-                        checked.add(pairKey);
-                        const cellA = grid[key];
-                        const cellB = key === nk ? cellA : grid[nk];
-                        for (const i of cellA) {
-                            const startJ = key === nk ? cellA.indexOf(i) + 1 : 0;
-                            for (let jIdx = startJ; jIdx < cellB.length; jIdx++) {
-                                const j = cellB[jIdx];
-                                if (i === j) continue;
-                                const a = items[i], b = items[j];
-                                const adx = Math.abs((a.x + a.offsetX) - (b.x + b.offsetX));
-                                const ady = Math.abs((a.y + a.offsetY) - (b.y + b.offsetY));
-                                const minDistX = BOX_W + GAP;
-                                const minDistY = (a.boxH + b.boxH) / 2 + GAP;
-                                if (adx < minDistX && ady < minDistY) {
-                                    moved = true;
-                                    const overlapX = minDistX - adx;
-                                    const overlapY = minDistY - ady;
-                                    if (overlapY < overlapX) {
-                                        const push = (overlapY / 2) + 1;
-                                        if ((a.y + a.offsetY) <= (b.y + b.offsetY)) { a.offsetY -= push; b.offsetY += push; }
-                                        else { a.offsetY += push; b.offsetY -= push; }
-                                    } else {
-                                        const push = (overlapX / 2) + 1;
-                                        if ((a.x + a.offsetX) <= (b.x + b.offsetX)) { a.offsetX -= push; b.offsetX += push; }
-                                        else { a.offsetX += push; b.offsetX -= push; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (!moved) break;
-        }
-
-        // Clamp offsets so boxes stay near their origin
-        for (const item of items) {
-            item.offsetX = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, item.offsetX));
-            item.offsetY = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, item.offsetY));
-        }
-
-        return items
-            .filter((item: any) => {
-                const alertKey = `${item.title}|${item.coords?.[0]},${item.coords?.[1]}`;
-                return !dismissedAlerts.has(alertKey);
-            })
-            .map((item: any) => ({
-                ...item,
-                alertKey: `${item.title}|${item.coords?.[0]},${item.coords?.[1]}`,
-                showLine: Math.abs(item.offsetX) > 5 || Math.abs(item.offsetY) > 5
-            }));
+        return spreadAlertItems(data.news, viewState.zoom, dismissedAlerts);
     }, [data?.news, Math.round(viewState.zoom), dismissedAlerts]);
 
     // Tracked flights GeoJSON with interpolation
@@ -995,75 +547,23 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         return { type: 'FeatureCollection', features };
     }, [activeLayers.tracked, data?.tracked_flights, dtSeconds]);
 
-    const uavGeoJSON = useMemo(() => {
-        if (!activeLayers.military || !data?.uavs) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.uavs.map((uav: any, i: number) => {
-                if (uav.lat == null || uav.lng == null || !inView(uav.lat, uav.lng)) return null;
-                return {
-                    type: 'Feature',
-                    properties: {
-                        id: uav.id || `uav-${i}`,
-                        type: 'uav',
-                        callsign: uav.callsign,
-                        rotation: uav.heading || 0,
-                        iconId: 'svgDrone',
-                        name: uav.aircraft_model || uav.callsign,
-                        country: uav.country || '',
-                        uav_type: uav.uav_type || '',
-                        alt: uav.alt || 0,
-                        wiki: uav.wiki || '',
-                        speed_knots: uav.speed_knots || 0,
-                        icao24: uav.icao24 || '',
-                        registration: uav.registration || '',
-                        squawk: uav.squawk || '',
-                    },
-                    geometry: { type: 'Point', coordinates: [uav.lng, uav.lat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.military, data?.uavs, inView]);
+    const uavGeoJSON = useMemo(() =>
+        activeLayers.military ? buildUavGeoJSON(data?.uavs, inView) : null,
+        [activeLayers.military, data?.uavs, inView]);
 
     // UAV range circles removed — real ADS-B drones don't have a fixed orbit center
 
-    const gdeltGeoJSON = useMemo(() => {
-        if (!activeLayers.global_incidents || !data?.gdelt) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.gdelt.map((g: any, i: number) => {
-                if (!g.geometry || !g.geometry.coordinates) return null;
-                const [gLng, gLat] = g.geometry.coordinates;
-                if (!inView(gLat, gLng)) return null;
-                return {
-                    type: 'Feature',
-                    properties: { id: g.properties?.name || String(g.geometry.coordinates), type: 'gdelt', title: g.title },
-                    geometry: g.geometry
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.global_incidents, data?.gdelt, inView]);
+    const gdeltGeoJSON = useMemo(() =>
+        activeLayers.global_incidents ? buildGdeltGeoJSON(data?.gdelt, inView) : null,
+        [activeLayers.global_incidents, data?.gdelt, inView]);
 
-    const liveuaGeoJSON = useMemo(() => {
-        if (!activeLayers.global_incidents || !data?.liveuamap) return null;
-        return {
-            type: 'FeatureCollection',
-            features: data.liveuamap.map((incident: any, i: number) => {
-                if (incident.lat == null || incident.lng == null || !inView(incident.lat, incident.lng)) return null;
-                const isViolent = /bomb|missil|strike|attack|kill|destroy|fire|shoot|expl|raid/i.test(incident.title || "");
-                return {
-                    type: 'Feature',
-                    properties: { id: incident.id, type: 'liveuamap', title: incident.title, iconId: isViolent ? 'icon-liveua-red' : 'icon-liveua-yellow' },
-                    geometry: { type: 'Point', coordinates: [incident.lng, incident.lat] }
-                };
-            }).filter(Boolean)
-        };
-    }, [activeLayers.global_incidents, data?.liveuamap, inView]);
+    const liveuaGeoJSON = useMemo(() =>
+        activeLayers.global_incidents ? buildLiveuaGeoJSON(data?.liveuamap, inView) : null,
+        [activeLayers.global_incidents, data?.liveuamap, inView]);
 
-    const frontlineGeoJSON = useMemo(() => {
-        if (!activeLayers.ukraine_frontline || !data?.frontlines) return null;
-        return data.frontlines; // Frontlines is already a fully formed GeoJSON FeatureCollection
-    }, [activeLayers.ukraine_frontline, data?.frontlines]);
+    const frontlineGeoJSON = useMemo(() =>
+        activeLayers.ukraine_frontline ? buildFrontlineGeoJSON(data?.frontlines) : null,
+        [activeLayers.ukraine_frontline, data?.frontlines]);
 
 
 
@@ -1084,6 +584,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
         earthquakesGeoJSON && 'earthquakes-layer',
         satellitesGeoJSON && 'satellites-layer',
         cctvGeoJSON && 'cctv-layer',
+        kiwisdrGeoJSON && 'kiwisdr-clusters',
         kiwisdrGeoJSON && 'kiwisdr-layer',
         internetOutagesGeoJSON && 'internet-outages-layer',
         dataCentersGeoJSON && 'datacenters-layer',
@@ -1146,6 +647,16 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     } else if (e.features && e.features.length > 0) {
                         const feature = e.features[0];
                         const props = feature.properties || {};
+
+                        // If the clicked feature is a cluster, zoom into it instead of selecting an entity
+                        if (props.cluster) {
+                            mapRef.current?.flyTo({
+                                center: [e.lngLat.lng, e.lngLat.lat],
+                                zoom: viewState.zoom + 2,
+                                duration: 500
+                            });
+                            return;
+                        }
                         onEntityClick?.({
                             id: props.id,
                             type: props.type,
@@ -1585,6 +1096,11 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                 {/* HTML labels for carriers (orange names, with ESTIMATED badge for OSINT positions) */}
                 {carriersGeoJSON && !selectedEntity && data?.ships && (
                     <CarrierLabels ships={data.ships} inView={inView} interpShip={interpShip} />
+                )}
+
+                {/* HTML labels for tracked yachts (pink owner names) */}
+                {shipsGeoJSON && activeLayers.ships_tracked_yachts && !selectedEntity && data?.ships && (
+                    <TrackedYachtLabels ships={data.ships} inView={inView} interpShip={interpShip} />
                 )}
 
                 {/* HTML labels for earthquake cluster counts (hidden when any entity popup is active) */}
@@ -2061,7 +1577,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                 <div className="map-popup-row">
                                     Altitude: <span className="text-[#44ff88]">{uav.alt?.toLocaleString()} m</span>
                                 </div>
-                                {uav.speed_knots > 0 && (
+                                {(uav.speed_knots ?? 0) > 0 && (
                                     <div className="map-popup-row">
                                         Speed: <span className="text-[#00e5ff]">{uav.speed_knots} kn</span>
                                     </div>
@@ -2076,6 +1592,94 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                         <WikiImage wikiUrl={uav.wiki} label={uav.callsign} maxH="max-h-28" accent="hover:border-red-500/50" />
                                     </div>
                                 )}
+                            </div>
+                        </Popup>
+                    );
+                })()}
+
+                {/* KiwiSDR Receivers Popup */}
+                {selectedEntity?.type === 'kiwisdr' && (() => {
+                    const receiver = data?.kiwisdr?.find((k: any) => k.name === selectedEntity.name || String(k.id) === String(selectedEntity.id));
+                    // use extra if available from the click event, otherwise fallback
+                    const props = selectedEntity.extra || receiver || {} as any;
+                    const lat = props.lat ?? selectedEntity.extra?.lat ?? selectedEntity.extra?.geometry?.coordinates?.[1];
+                    const lng = props.lon ?? (props as any).lng ?? selectedEntity.extra?.lon ?? selectedEntity.extra?.geometry?.coordinates?.[0];
+                    if (lat == null || lng == null) return null;
+                    return (
+                        <Popup
+                            longitude={lng} latitude={lat}
+                            closeButton={false} closeOnClick={false}
+                            onClose={() => onEntityClick?.(null)}
+                            anchor="bottom" offset={12}
+                        >
+                            <div className="map-popup !border-amber-500/40" style={{ borderWidth: 1, borderStyle: 'solid' }}>
+                                <div className="flex justify-between items-start mb-1">
+                                    <div className="map-popup-title text-amber-400">
+                                        {(props.name || 'UNKNOWN SDR RECEIVER').toUpperCase()}
+                                    </div>
+                                    <button onClick={() => onEntityClick?.(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] ml-2">✕</button>
+                                </div>
+                                <div className="map-popup-subtitle text-amber-600/80 border-b border-amber-900/30 pb-1 flex items-center gap-1.5">
+                                    <Radio size={10} /> PUBLIC NETWORK RECEIVER
+                                </div>
+                                
+                                {props.location && (
+                                    <div className="map-popup-row mt-1">
+                                        Location: <span className="text-white">{props.location}</span>
+                                    </div>
+                                )}
+                                {props.users !== undefined && (
+                                    <div className="map-popup-row">
+                                        Active Users: <span className={props.users >= (props.users_max || 4) ? 'text-red-400' : 'text-amber-400'}>{props.users} / {props.users_max || '?'}</span>
+                                    </div>
+                                )}
+                                {props.antenna && (
+                                    <div className="map-popup-row">
+                                        Antenna: <span className="text-[#888]">{props.antenna}</span>
+                                    </div>
+                                )}
+                                {props.bands && (
+                                    <div className="map-popup-row">
+                                        Bands: <span className="text-cyan-400">{(Number(props.bands.split('-')[0]) / 1e6).toFixed(0)}-{(Number(props.bands.split('-')[1]) / 1e6).toFixed(0)} MHz</span>
+                                    </div>
+                                )}
+
+                                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-[var(--border-primary)]">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            // The extra object contains the raw GeoJSON properties, including URL
+                                            if (setTrackedSdr) {
+                                                setTrackedSdr({
+                                                    lat, lon: lng,
+                                                    name: props.name,
+                                                    url: props.url,
+                                                    users: props.users,
+                                                    users_max: props.users_max,
+                                                    bands: props.bands,
+                                                    antenna: props.antenna,
+                                                    location: props.location
+                                                });
+                                            }
+                                            onEntityClick?.(null);
+                                        }}
+                                        className="flex-1 text-center px-2 py-1.5 rounded bg-amber-950/40 border border-amber-500/30 hover:bg-amber-900/60 hover:border-amber-400 text-amber-400 text-[9px] font-mono tracking-widest transition-colors flex justify-center items-center gap-1.5"
+                                    >
+                                        <Activity size={10} /> TRACK SIGNAL
+                                    </button>
+                                    
+                                    {props.url && (
+                                        <a
+                                            href={props.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-2 py-1.5 rounded bg-amber-500/10 border border-amber-500/50 hover:bg-amber-500/20 hover:border-amber-400 text-amber-400 text-[9px] font-mono tracking-widest transition-colors"
+                                            title="Open SDR interface in new tab"
+                                        >
+                                            <Play size={10} className="fill-amber-400/20" />
+                                        </a>
+                                    )}
+                                </div>
                             </div>
                         </Popup>
                     );
@@ -2096,9 +1700,9 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                             onClose={() => onEntityClick?.(null)}
                             anchor="bottom" offset={12}
                         >
-                            <div className="map-popup" style={{ borderWidth: 1, borderStyle: 'solid', borderColor: ship.type === 'carrier' ? 'rgba(255,170,0,0.5)' : 'rgba(59,130,246,0.4)' }}>
+                            <div className="map-popup" style={{ borderWidth: 1, borderStyle: 'solid', borderColor: ship.yacht_alert ? 'rgba(255,105,180,0.5)' : ship.type === 'carrier' ? 'rgba(255,170,0,0.5)' : 'rgba(59,130,246,0.4)' }}>
                                 <div className="flex justify-between items-start mb-1">
-                                    <div className="map-popup-title" style={{ color: ship.type === 'carrier' ? '#ffaa00' : '#3b82f6' }}>
+                                    <div className="map-popup-title" style={{ color: ship.yacht_alert ? '#FF69B4' : ship.type === 'carrier' ? '#ffaa00' : '#3b82f6' }}>
                                         {ship.name || 'UNKNOWN VESSEL'}
                                     </div>
                                     <button onClick={() => onEntityClick?.(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] ml-2">✕</button>
@@ -2171,6 +1775,17 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                         Last OSINT Update: <span className="text-[#888]">{new Date(ship.last_osint_update).toLocaleDateString()}</span>
                                     </div>
                                 )}
+                                {ship.yacht_alert && (
+                                    <div className="mt-1.5 p-[5px_7px] bg-[rgba(255,105,180,0.08)] border border-[rgba(255,105,180,0.3)] rounded text-[9px] tracking-wide">
+                                        <div className="text-[#FF69B4] font-bold mb-0.5">TRACKED YACHT</div>
+                                        <div>Owner: <span className="text-white">{ship.yacht_owner}</span></div>
+                                        {ship.yacht_builder && <div>Builder: <span className="text-[#888]">{ship.yacht_builder}</span></div>}
+                                        {(ship.yacht_length ?? 0) > 0 && <div>Length: <span className="text-[#888]">{ship.yacht_length}m</span></div>}
+                                        {(ship.yacht_year ?? 0) > 0 && <div>Year: <span className="text-[#888]">{ship.yacht_year}</span></div>}
+                                        {ship.yacht_category && <div>Category: <span className="text-[#FF69B4]">{ship.yacht_category}</span></div>}
+                                        {ship.yacht_link && <a href={ship.yacht_link} target="_blank" rel="noopener noreferrer" className="text-[#00e5ff] underline">Wikipedia</a>}
+                                    </div>
+                                )}
                             </div>
                         </Popup>
                     );
@@ -2231,11 +1846,11 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     );
                 })()}
 
-                {
-                    selectedEntity?.type === 'gdelt' && (() => {
-                        const item = data?.gdelt?.find((g: any) => (g.properties?.name || String(g.geometry?.coordinates)) === selectedEntity.id);
-                        if (!item) return null;
-                        return (
+                {(() => {
+                    if (selectedEntity?.type !== 'gdelt' || !data?.gdelt) return null;
+                    const item = data.gdelt.find((g: any) => (g.properties?.name || String(g.geometry?.coordinates)) === selectedEntity.id);
+                    if (!item?.geometry?.coordinates) return null;
+                    return (
                         <Popup
                             longitude={item.geometry.coordinates[0]}
                             latitude={item.geometry.coordinates[1]}
@@ -2293,13 +1908,13 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                 </div>
                             </div>
                         </Popup>
-                        );
-                    })()
-                }
+                    );
+                })()}
 
                 {
                     selectedEntity?.type === 'liveuamap' && data?.liveuamap?.find((l: any) => String(l.id) === String(selectedEntity.id)) && (() => {
                         const item = data.liveuamap.find((l: any) => String(l.id) === String(selectedEntity.id));
+                        if (!item) return null;
                         return (
                             <Popup
                                 longitude={item.lng}
@@ -2339,9 +1954,13 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                     })()
                 }
 
-                {
-                    selectedEntity?.type === 'news' && (() => {
-                        const item = data?.news?.find((n: any) => (n.alertKey || `${n.title}|${n.coords?.[0]},${n.coords?.[1]}`) === selectedEntity.id);
+                {(() => {
+                    if (selectedEntity?.type !== 'news' || !data?.news) return null;
+                    const item = data.news.find((n: any) => {
+                        const key = n.alertKey || `${n.title}|${n.coords?.[0]},${n.coords?.[1]}`;
+                        return key === selectedEntity.id;
+                    });
+                    if (!item) return null;
                         let threatColor = "text-yellow-400";
                         let borderColor = "border-yellow-800";
                         let bgHeaderColor = "bg-yellow-950/40";
@@ -2358,7 +1977,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                             shadowColor = "rgba(0,255,0,0.3)";
                         }
 
-                        if (!item || !item.coords) return null;
+                    if (!item.coords) return null;
 
                         return (
                             <Popup
@@ -2406,8 +2025,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                 </div>
                             </Popup>
                         );
-                    })()
-                }
+                })()}
 
                 {/* REGION DOSSIER — location pin on map (full intel shown in right panel) */}
                 {selectedEntity?.type === 'region_dossier' && selectedEntity.extra && (

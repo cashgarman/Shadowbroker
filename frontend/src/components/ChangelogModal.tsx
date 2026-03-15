@@ -4,55 +4,55 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Zap, Ship, Download, Shield, Bug, Heart } from "lucide-react";
 
-const CURRENT_VERSION = "0.9";
+const CURRENT_VERSION = "0.9.5";
 const STORAGE_KEY = `shadowbroker_changelog_v${CURRENT_VERSION}`;
 
 const NEW_FEATURES = [
     {
-        icon: <Download size={14} className="text-cyan-400" />,
-        title: "In-App Auto-Updater",
-        desc: "One-click updates directly from the dashboard. Downloads the latest release, backs up your files, extracts over the project, and auto-restarts. Manual download fallback included if anything goes wrong.",
+        icon: <Zap size={14} className="text-cyan-400" />,
+        title: "Parallelized Boot (15s Cold Start)",
+        desc: "Backend startup now runs fast-tier, slow-tier, and airport data concurrently via ThreadPoolExecutor. Boot time cut from 60s+ to ~15s.",
         color: "cyan",
     },
     {
-        icon: <Ship size={14} className="text-blue-400" />,
-        title: "Granular Ship Layer Controls",
-        desc: "Ships split into 4 independent toggles: Military/Carriers, Cargo/Tankers, Civilian Vessels, and Cruise/Passenger. Each shows its own live count in the sidebar.",
-        color: "blue",
-    },
-    {
         icon: <Shield size={14} className="text-green-400" />,
-        title: "Stable Entity Selection",
-        desc: "Ship and flight markers now use MMSI/callsign IDs instead of volatile array indices. Selecting a ship or plane stays locked on even when data refreshes every 60 seconds.",
+        title: "Adaptive Polling + ETag Caching",
+        desc: "Data polling engine rebuilt with adaptive retry (3s startup, 15s steady state) and ETag conditional caching. Map panning no longer interrupts data flow.",
         color: "green",
     },
     {
-        icon: <X size={14} className="text-red-400" />,
-        title: "Dismissible Threat Alerts",
-        desc: "Click the X on any threat alert bubble to dismiss it for the session. Uses stable content hashing so dismissed alerts stay hidden across 60-second data refreshes.",
-        color: "red",
+        icon: <Ship size={14} className="text-blue-400" />,
+        title: "Sliding Edge Panels (LAYERS / INTEL)",
+        desc: "Replaced bulky Record Panel with spring-animated side tabs. LAYERS on the left, INTEL (News, Markets, Radio, Find) on the right. Premium tactical HUD feel.",
+        color: "blue",
     },
     {
-        icon: <Zap size={14} className="text-yellow-400" />,
-        title: "Faster Data Loading",
-        desc: "GDELT military incidents now load instantly with background title enrichment instead of blocking for 2+ minutes. Eliminated duplicate startup fetch jobs for faster boot.",
+        icon: <Download size={14} className="text-yellow-400" />,
+        title: "Admin Auth + Rate Limiting + Auto-Updater",
+        desc: "Settings and system endpoints protected by X-Admin-Key. All endpoints rate-limited via slowapi. One-click auto-update from GitHub releases with safe backup/restart.",
         color: "yellow",
+    },
+    {
+        icon: <Shield size={14} className="text-purple-400" />,
+        title: "Docker Swarm Secrets Support",
+        desc: "Production deployments can now load API keys from /run/secrets/ instead of environment variables. env_check.py enforces warning tiers for missing keys.",
+        color: "purple",
     },
 ];
 
 const BUG_FIXES = [
-    "Removed viewport bbox filtering that caused 20-second delays when panning between regions",
-    "Fixed carrier tracker crash on GDELT 429/TypeError responses",
-    "Removed fake intelligence assessment generator — all data is now real OSINT only",
-    "Docker healthcheck start_period increased to 90s to prevent false-negative restarts during data preload",
-    "ETag collision fix — full payload hash instead of first 256 chars",
-    "Concurrent /api/refresh guard prevents duplicate data fetches",
+    "Stable entity IDs for GDELT & News popups — no more wrong popup after data refresh (PR #63)",
+    "useCallback optimization for interpolation functions — eliminates redundant React re-renders on every 1s tick",
+    "Restored missing GDELT and datacenter background refreshes in slow-tier loop",
+    "Server-side viewport bounding box filtering reduces JSON payload size by 80%+",
+    "Modular fetcher architecture sustained over monolithic data_fetcher.py",
+    "CCTV ingestors instantiated once at startup — no more fresh DB connections every 10min tick",
 ];
 
 const CONTRIBUTORS = [
     { name: "@imqdcr", desc: "Ship toggle split into 4 categories + stable MMSI/callsign entity IDs for map markers" },
-    { name: "@csysp", desc: "Dismissible threat alert bubbles with stable content hashing + stopPropagation crash fix", pr: "#48" },
-    { name: "@suranyami", desc: "Parallel multi-arch Docker builds (11min → 3min) + runtime BACKEND_URL fix", pr: "#35, #44" },
+    { name: "@csysp", desc: "Dismissible threat alerts + stable entity IDs for GDELT & News popups", pr: "#48, #63" },
+    { name: "@suranyami", desc: "Parallel multi-arch Docker builds (11min \u2192 3min) + runtime BACKEND_URL fix", pr: "#35, #44" },
 ];
 
 export function useChangelog() {

@@ -4,6 +4,7 @@ import re
 import os
 import time
 import math
+import json
 import logging
 import threading
 import concurrent.futures
@@ -13,6 +14,7 @@ from cachetools import TTLCache
 from services.network_utils import fetch_with_curl
 from services.fetchers._store import latest_data, _data_lock, _mark_fresh
 from services.fetchers.plane_alert import enrich_with_plane_alert, enrich_with_tracked_names
+from services.fetchers.retry import with_retry
 
 logger = logging.getLogger("services.data_fetcher")
 
@@ -139,7 +141,7 @@ def _fetch_supplemental_sources(seen_hex: set) -> list:
             if res.status_code == 200:
                 data = res.json()
                 return data.get("ac", [])
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
             logger.debug(f"airplanes.live {region['name']} failed: {e}")
         return []
 
@@ -153,7 +155,7 @@ def _fetch_supplemental_sources(seen_hex: set) -> list:
                     f["supplemental_source"] = "airplanes.live"
                     new_supplemental.append(f)
                     supplemental_hex.add(h)
-    except Exception as e:
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
         logger.warning(f"airplanes.live supplemental fetch failed: {e}")
 
     ap_count = len(new_supplemental)
@@ -172,10 +174,10 @@ def _fetch_supplemental_sources(seen_hex: set) -> list:
                             f["supplemental_source"] = "adsb.fi"
                             new_supplemental.append(f)
                             supplemental_hex.add(h)
-            except Exception as e:
+            except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
                 logger.debug(f"adsb.fi {region['name']} failed: {e}")
             time.sleep(1.1)
-    except Exception as e:
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
         logger.warning(f"adsb.fi supplemental fetch failed: {e}")
 
     fi_count = len(new_supplemental) - ap_count
@@ -236,8 +238,8 @@ def fetch_routes_background(sampled):
                                     "dest_loc": [dest_apt.get("lon", 0), dest_apt.get("lat", 0)],
                                 }
                 time.sleep(0.25)
-            except Exception:
-                logger.debug("Route batch request failed")
+            except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
+                logger.debug(f"Route batch request failed: {e}")
     finally:
         with _routes_lock:
             routes_fetch_in_progress = False
@@ -327,7 +329,7 @@ def _classify_and_publish(all_adsb_flights):
                 "aircraft_category": ac_category,
                 "nac_p": f.get("nac_p")
             })
-        except Exception as loop_e:
+        except (ValueError, TypeError, KeyError, AttributeError) as loop_e:
             logger.error(f"Flight interpolation error: {loop_e}")
             continue
 
@@ -530,7 +532,7 @@ def _classify_and_publish(all_adsb_flights):
             latest_data['gps_jamming'] = jamming_zones
         if jamming_zones:
             logger.info(f"GPS Jamming: {len(jamming_zones)} interference zones detected")
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, ZeroDivisionError) as e:
         logger.error(f"GPS Jamming detection error: {e}")
         with _data_lock:
             latest_data['gps_jamming'] = []
@@ -571,7 +573,7 @@ def _classify_and_publish(all_adsb_flights):
                     holding_count += 1
         if holding_count:
             logger.info(f"Holding patterns: {holding_count} aircraft circling")
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, ZeroDivisionError) as e:
         logger.error(f"Holding pattern detection error: {e}")
 
     with _data_lock:
@@ -596,7 +598,7 @@ def _fetch_adsb_lol_regions():
             if res.status_code == 200:
                 data = res.json()
                 return data.get("ac", [])
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as e:
             logger.warning(f"Region fetch failed for lat={r['lat']}: {e}")
         return []
 
@@ -663,7 +665,7 @@ def _enrich_with_opensky_and_supplemental(adsb_flights):
                                 })
                         else:
                             logger.warning(f"OpenSky API {os_reg['name']} failed: {os_res.status_code}")
-                    except Exception as ex:
+                    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, json.JSONDecodeError, OSError) as ex:
                         logger.error(f"OpenSky fetching error for {os_reg['name']}: {ex}")
 
                 cached_opensky_flights = new_opensky_flights
@@ -686,7 +688,7 @@ def _enrich_with_opensky_and_supplemental(adsb_flights):
                     seen_hex.add(h)
             if gap_fill:
                 logger.info(f"Gap-fill: added {len(gap_fill)} aircraft to pipeline")
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
             logger.warning(f"Supplemental source fetch failed (non-fatal): {e}")
 
         # Re-publish with enriched data
@@ -697,6 +699,7 @@ def _enrich_with_opensky_and_supplemental(adsb_flights):
         logger.error(f"OpenSky/supplemental enrichment error: {e}")
 
 
+@with_retry(max_retries=1, base_delay=1)
 def fetch_flights():
     """Two-phase flight fetching:
     Phase 1 (fast): Fetch adsb.lol → classify → publish immediately (~3-5s)

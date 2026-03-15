@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const readline = require('readline');
 
 const args = process.argv.slice(2);
 const API_KEY = args[0] || process.env.AIS_API_KEY;
@@ -8,22 +9,15 @@ if (!API_KEY) {
     process.exit(1);
 }
 
-const FILTER = [
-    // US Aircraft Carriers and major naval groups
-    { "MMSI": 338000000 }, { "MMSI": 338100000 }, // US Navy general prefixes
-    // Plus let's grab some global shipping for density
-    { "BoundingBoxes": [[[-90, -180], [90, 180]]] }
-];
+// Start with global coverage, until frontend updates it
+let currentBboxes = [[[-90, -180], [90, 180]]];
+let activeWs = null;
 
-function connect() {
-    const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
-
-    ws.on('open', () => {
+function sendSub(ws) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
         const subMsg = {
             APIKey: API_KEY,
-            BoundingBoxes: [
-                [[-90, -180], [90, 180]]
-            ],
+            BoundingBoxes: currentBboxes,
             FilterMessageTypes: [
                 "PositionReport",
                 "ShipStaticData",
@@ -31,17 +25,39 @@ function connect() {
             ]
         };
         ws.send(JSON.stringify(subMsg));
+    }
+}
+
+// Listen for dynamic bounding box updates via stdin from Python orchestrator
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false
+});
+
+rl.on('line', (line) => {
+    try {
+        const cmd = JSON.parse(line);
+        if (cmd.type === "update_bbox" && cmd.bboxes) {
+            currentBboxes = cmd.bboxes;
+            if (activeWs) sendSub(activeWs); // Resend subscription (swap and replace)
+        }
+    } catch (e) {}
+});
+
+function connect() {
+    const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+    activeWs = ws;
+
+    ws.on('open', () => {
+        sendSub(ws);
     });
 
     ws.on('message', (data) => {
-        // Output raw AIS message JSON to stdout so Python can consume it
-        // We ensure exactly one JSON object per line.
         try {
             const parsed = JSON.parse(data);
             console.log(JSON.stringify(parsed));
-        } catch (e) {
-            // ignore non-json
-        }
+        } catch (e) {}
     });
 
     ws.on('error', (err) => {
@@ -49,6 +65,7 @@ function connect() {
     });
 
     ws.on('close', () => {
+        activeWs = null;
         console.error("WebSocket Proxy Closed. Reconnecting in 5s...");
         setTimeout(connect, 5000);
     });

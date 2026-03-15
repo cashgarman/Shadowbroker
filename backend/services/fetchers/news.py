@@ -2,9 +2,11 @@
 import re
 import logging
 import concurrent.futures
+import requests
 import feedparser
 from services.network_utils import fetch_with_curl
 from services.fetchers._store import latest_data, _data_lock, _mark_fresh
+from services.fetchers.retry import with_retry
 
 logger = logging.getLogger("services.data_fetcher")
 
@@ -89,6 +91,7 @@ _KEYWORD_COORDS = {
 }
 
 
+@with_retry(max_retries=1, base_delay=2)
 def fetch_news():
     from services.news_feed_config import get_feeds
     feed_config = get_feeds()
@@ -103,7 +106,7 @@ def fetch_news():
         try:
             xml_data = fetch_with_curl(url, timeout=10).text
             return source_name, feedparser.parse(xml_data)
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError, OSError) as e:
             logger.warning(f"Feed {source_name} failed: {e}")
             return source_name, None
 

@@ -3,6 +3,28 @@
 # Graceful shutdown: kill all child processes on exit/interrupt
 trap 'kill 0' EXIT SIGINT SIGTERM
 
+# Kill any processes on ports 3000 and 8000 first (before anything else)
+kill_port() {
+    local port=$1
+    # Try ss (Linux), then lsof (macOS/Linux), then fuser
+    local pids=""
+    if command -v ss &> /dev/null; then
+        pids=$(ss -tlnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | tr '\n' ' ')
+    fi
+    if [ -z "$pids" ] && command -v lsof &> /dev/null; then
+        pids=$(lsof -ti:$port 2>/dev/null | tr '\n' ' ')
+    fi
+    if [ -n "$pids" ]; then
+        for pid in $pids; do
+            kill -9 "$pid" 2>/dev/null && echo "[*] Killed PID $pid on port $port"
+        done
+    elif command -v fuser &> /dev/null; then
+        fuser -k $port/tcp 2>/dev/null && echo "[*] Killed process(es) on port $port"
+    fi
+}
+for port in 3000 8000; do kill_port $port; done
+sleep 2
+
 echo "======================================================="
 echo "   S H A D O W B R O K E R   -   macOS / Linux Start   "
 echo "======================================================="
@@ -83,9 +105,18 @@ fi
 echo "[*] Frontend dependencies OK."
 
 echo ""
+echo "[*] Ensuring ports 3000 and 8000 are free..."
+for port in 3000 8000; do kill_port $port; done
+# Fallback: npx kill-port if native tools didn't work
+if command -v npx &> /dev/null; then
+    npx -y kill-port 3000 8000 2>/dev/null || true
+fi
+sleep 2
+
+echo ""
 echo "======================================================="
 echo "  Starting services...                                 "
-echo "  Dashboard: http://localhost:3000                     "
+echo "  Dashboard: http://localhost:3000 (LAN: use your machine's IP) "
 echo "  Keep this window open! Initial load takes ~10s.      "
 echo "======================================================="
 echo "  (Press Ctrl+C to stop)"

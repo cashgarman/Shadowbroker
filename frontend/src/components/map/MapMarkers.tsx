@@ -106,6 +106,32 @@ export function CarrierLabels({ ships, inView, interpShip }: CarrierLabelsProps)
     );
 }
 
+// -- Tracked yacht labels --
+interface TrackedYachtLabelsProps {
+    ships: any[];
+    inView: (lat: number, lng: number) => boolean;
+    interpShip: (s: any) => [number, number];
+}
+
+export function TrackedYachtLabels({ ships, inView, interpShip }: TrackedYachtLabelsProps) {
+    return (
+        <>
+            {ships.map((s: any, i: number) => {
+                if (!s.yacht_alert || s.lat == null || s.lng == null) return null;
+                if (!inView(s.lat, s.lng)) return null;
+                const [iLng, iLat] = interpShip(s);
+                return (
+                    <Marker key={`yacht-label-${i}`} longitude={iLng} latitude={iLat} anchor="top" offset={[0, 12]} style={{ zIndex: 2 }}>
+                        <div style={{ ...LABEL_BASE, color: s.yacht_color || '#FF69B4', fontSize: '10px', textShadow: LABEL_SHADOW_EXTRA, whiteSpace: 'nowrap' }}>
+                            {s.yacht_owner || s.name || 'TRACKED YACHT'}
+                        </div>
+                    </Marker>
+                );
+            })}
+        </>
+    );
+}
+
 // -- UAV labels --
 interface UavLabelsProps {
     uavs: any[];

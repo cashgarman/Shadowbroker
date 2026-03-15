@@ -25,7 +25,7 @@ GITHUB_RELEASES_URL = "https://api.github.com/repos/BigBodyCobain/Shadowbroker/r
 # ---------------------------------------------------------------------------
 # Protected patterns — files/dirs that must NEVER be overwritten during update
 # ---------------------------------------------------------------------------
-_PROTECTED_DIRS = {"venv", "node_modules", ".next", "__pycache__", ".git"}
+_PROTECTED_DIRS = {"venv", "node_modules", ".next", "__pycache__", ".git", ".github", ".claude"}
 _PROTECTED_EXTENSIONS = {".db", ".sqlite"}
 _PROTECTED_NAMES = {
     ".env",
@@ -159,7 +159,10 @@ def _extract_and_copy(zip_path: str, project_root: str, temp_dir: str) -> int:
     copied = 0
     skipped = 0
 
-    for root, _dirs, files in os.walk(base):
+    for root, dirs, files in os.walk(base):
+        # Prune protected directories so os.walk never descends into them
+        dirs[:] = [d for d in dirs if d not in _PROTECTED_DIRS]
+
         for fname in files:
             src = os.path.join(root, fname)
             rel = os.path.relpath(src, base).replace("\\", "/")
@@ -168,9 +171,14 @@ def _extract_and_copy(zip_path: str, project_root: str, temp_dir: str) -> int:
                 skipped += 1
                 continue
 
-            dst = os.path.join(project_root, rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            dst = os.path.abspath(os.path.join(project_root, rel))
+            # Safety: never write outside the project root (zip path traversal)
+            if not dst.startswith(os.path.abspath(project_root)):
+                logger.warning(f"Safety skip (path traversal): {rel}")
+                skipped += 1
+                continue
             try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
                 copied += 1
             except (PermissionError, OSError) as e:

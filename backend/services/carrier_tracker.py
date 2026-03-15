@@ -381,7 +381,7 @@ def update_carrier_positions():
             if hull in positions:
                 positions[hull].update(pos)
                 logger.info(f"Carrier OSINT: updated {CARRIER_REGISTRY[hull]['name']} from news")
-    except Exception as e:
+    except (ValueError, KeyError, json.JSONDecodeError, OSError) as e:
         logger.warning(f"GDELT carrier fetch failed: {e}")
 
     # Save and update the global state with enriched positions

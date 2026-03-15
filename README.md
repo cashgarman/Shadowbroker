@@ -442,6 +442,27 @@ This starts:
 * **Next.js** frontend on `http://localhost:3000`
 * **FastAPI** backend on `http://localhost:8000`
 
+### Local AIS Receiver (Optional)
+
+You can feed your own AIS ship data into ShadowBroker using an RTL-SDR dongle and [AIS-catcher](https://github.com/jvde-github/AIS-catcher), an open-source AIS decoder. This gives you real-time coverage of vessels in your local area — no API key needed.
+
+1. Plug in an RTL-SDR dongle
+2. Install AIS-catcher ([releases](https://github.com/jvde-github/AIS-catcher/releases)) or use the Docker image:
+   ```bash
+   docker run -d --device /dev/bus/usb \
+     ghcr.io/jvde-github/ais-catcher -H http://host.docker.internal:4000/api/ais/feed interval 10
+   ```
+3. Or run natively:
+   ```bash
+   AIS-catcher -H http://localhost:4000/api/ais/feed interval 10
+   ```
+
+AIS-catcher decodes VHF radio signals on 161.975 MHz and 162.025 MHz and POSTs decoded vessel data to ShadowBroker every 10 seconds. Ships detected by your SDR antenna appear alongside the global AIS stream.
+
+**Docker (ARM/Raspberry Pi):** See [docker-shipfeeder](https://github.com/sdr-enthusiasts/docker-shipfeeder) for a production-ready Docker image optimized for ARM.
+
+**Note:** AIS range depends on your antenna — typically 20-40 nautical miles with a basic setup, 60+ nm with a marine VHF antenna at elevation.
+
 ---
 
 ## 🎛️ Data Layers
@@ -459,6 +480,7 @@ All layers are independently toggleable from the left panel:
 | Carriers / Mil / Cargo | ✅ ON | Navy carriers, cargo ships, tankers |
 | Civilian Vessels | ❌ OFF | Yachts, fishing, recreational |
 | Cruise / Passenger | ✅ ON | Cruise ships and ferries |
+| Tracked Yachts | ✅ ON | Billionaire & oligarch superyachts (Yacht-Alert DB) |
 | Earthquakes (24h) | ✅ ON | USGS seismic events |
 | CCTV Mesh | ❌ OFF | Surveillance camera network |
 | Ukraine Frontline | ✅ ON | Live warfront positions |
